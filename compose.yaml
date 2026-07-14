@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: hangeoreum-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hangeoreum
+      POSTGRES_USER: hangeoreum
+      POSTGRES_PASSWORD: hangeoreum
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../docs/plan/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hangeoreum -d hangeoreum"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
