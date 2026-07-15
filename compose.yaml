@@ -24,14 +24,11 @@ services:
       dockerfile: Dockerfile
     container_name: hangeoreum-api
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       SERVER_PORT: 8082
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hangeoreum
-      SPRING_DATASOURCE_USERNAME: hangeoreum
-      SPRING_DATASOURCE_PASSWORD: hangeoreum
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://host.docker.internal:5432/hangeoreum}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-hangeoreum}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-hangeoreum}
       JWT_SECRET: ${JWT_SECRET:-hangeoreum-dev-secret-key-change-in-prod-32b!}
       FRONT_ORIGIN: ${FRONT_ORIGIN:-http://localhost:4200}
       FRONT_URL: ${FRONT_URL:-http://localhost:4200}

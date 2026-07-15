@@ -21,7 +21,7 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                sh 'docker compose up -d --build postgres api'
+                sh 'docker compose up -d --build api'
             }
         }
 
