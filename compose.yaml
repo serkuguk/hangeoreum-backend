@@ -18,5 +18,31 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hangeoreum-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8082
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hangeoreum
+      SPRING_DATASOURCE_USERNAME: hangeoreum
+      SPRING_DATASOURCE_PASSWORD: hangeoreum
+      JWT_SECRET: ${JWT_SECRET:-hangeoreum-dev-secret-key-change-in-prod-32b!}
+      FRONT_ORIGIN: ${FRONT_ORIGIN:-http://localhost:4200}
+      FRONT_URL: ${FRONT_URL:-http://localhost:4200}
+      MEDIA_DIR: /app/uploads
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+    ports:
+      - "8082:8082"
+    volumes:
+      - api_uploads:/app/uploads
+
 volumes:
   postgres_data:
+  api_uploads:
