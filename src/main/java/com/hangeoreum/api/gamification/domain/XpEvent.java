@@ -30,6 +30,8 @@ public class XpEvent {
 
     private UUID sourceId;
 
+    private UUID idempotencyKey;
+
     private Instant createdAt = Instant.now();
 
     public static XpEvent of(UUID userId, int amount, XpSource source, UUID sourceId) {

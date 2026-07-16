@@ -11,6 +11,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,20 +26,21 @@ public class VocabularyService {
     private final LessonWordRepository lessonWordRepository;
     private final DeckRepository deckRepository;
     private final DeckWordRepository deckWordRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     /** Called on lesson completion: puts the lesson's words into the user's SRS queue. */
     @Transactional
     public List<WordDto> addLessonWords(UUID userId, UUID lessonId) {
-        List<WordDto> added = new ArrayList<>();
-        for (LessonWord lessonWord : lessonWordRepository.findByLessonId(lessonId)) {
-            if (userWordRepository.findByUserIdAndWordId(userId, lessonWord.getWordId()).isEmpty()) {
-                wordRepository.findById(lessonWord.getWordId()).ifPresent(word -> {
-                    userWordRepository.save(UserWord.add(userId, word));
-                    added.add(WordDto.from(word));
-                });
-            }
-        }
-        return added;
+        List<UUID> insertedIds = jdbcTemplate.queryForList("""
+                insert into user_words (user_id, word_id)
+                select ?, lw.word_id from lesson_words lw where lw.lesson_id = ?
+                on conflict (user_id, word_id) do nothing
+                returning word_id
+                """, UUID.class, userId, lessonId);
+        var inserted = wordRepository.findAllById(insertedIds).stream()
+                .collect(java.util.stream.Collectors.toMap(Word::getId, word -> word));
+        return insertedIds.stream().map(inserted::get).filter(java.util.Objects::nonNull)
+                .map(WordDto::from).toList();
     }
 
     @Transactional

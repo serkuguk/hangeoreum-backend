@@ -31,16 +31,17 @@ public class LearningController {
 
     @GetMapping("/lessons/{id}/tip")
     public LearningService.TipDto tip(@PathVariable UUID id) {
-        return learningService.getTip(id);
+        return learningService.getTip(CurrentUser.id(), id);
     }
 
-    public record CompleteRequest(@Min(0) @Max(100) short score, @Min(0) @Max(100) short accuracy) {
+    public record CompleteRequest(UUID attemptId, @Min(0) @Max(100) short score,
+                                  @Min(0) @Max(100) short accuracy) {
     }
 
     @PostMapping("/lessons/{id}/complete")
     public LearningService.CompleteResult complete(@PathVariable UUID id,
                                                    @RequestBody @Valid CompleteRequest request) {
-        return learningService.completeLesson(CurrentUser.id(), id, request.score(), request.accuracy());
+        return learningService.completeLesson(CurrentUser.id(), id, request.attemptId(), request.score(), request.accuracy());
     }
 
     @GetMapping("/lessons/{id}/story")

@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -83,11 +84,22 @@ public class ReviewService {
     @Transactional
     public void submitAnswers(UUID userId, UUID sessionId, List<AnswerCommand> answers) {
         ReviewSession session = ownSession(userId, sessionId);
+        HashSet<UUID> requestedWords = new HashSet<>();
         for (AnswerCommand answer : answers) {
             if (answer.quality() < 0 || answer.quality() > 5) {
                 throw ApiException.badRequest("quality must be 0..5");
             }
-            UserWord userWord = userWordRepository.findByUserIdAndWordId(userId, answer.wordId())
+            if (!requestedWords.add(answer.wordId())) {
+                throw ApiException.conflict("Duplicate word in review answer batch");
+            }
+            ReviewAnswer existing = answerRepository.findBySessionIdAndWordId(sessionId, answer.wordId()).orElse(null);
+            if (existing != null) {
+                if (existing.getQuality() != answer.quality()) {
+                    throw ApiException.conflict("Review answer does not match the saved answer");
+                }
+                continue;
+            }
+            UserWord userWord = userWordRepository.findByUserIdAndWordIdForUpdate(userId, answer.wordId())
                     .orElseThrow(() -> ApiException.notFound("Word " + answer.wordId()));
             userWord.review(answer.quality());
             answerRepository.save(ReviewAnswer.of(sessionId, answer.wordId(), answer.quality()));
@@ -101,6 +113,10 @@ public class ReviewService {
     @Transactional
     public FinishResult finishSession(UUID userId, UUID sessionId) {
         ReviewSession session = ownSession(userId, sessionId);
+        if (session.isFinished()) {
+            return new FinishResult(session.getTotal(), session.getCorrect(), session.getXpEarned(),
+                    session.getStreakAfter() == null ? 0 : session.getStreakAfter());
+        }
         int xp = session.finish();
         int streak = 0;
         if (xp > 0) {
@@ -108,11 +124,12 @@ public class ReviewService {
                     session.isGame() ? XpSource.GAME : XpSource.REVIEW, sessionId);
             streak = result.streakCurrent();
         }
+        session.saveStreakAfter(streak);
         return new FinishResult(session.getTotal(), session.getCorrect(), xp, streak);
     }
 
     private ReviewSession ownSession(UUID userId, UUID sessionId) {
-        return sessionRepository.findByIdAndUserId(sessionId, userId)
+        return sessionRepository.findByIdAndUserIdForUpdate(sessionId, userId)
                 .orElseThrow(() -> ApiException.notFound("Review session"));
     }
 }

@@ -36,12 +36,29 @@ public class GrantXpService {
     /** The single entry point for awarding XP. */
     @Transactional
     public GrantResult grant(UUID userId, int amount, XpSource source, UUID sourceId) {
-        LocalDate today = LocalDate.now();
-        xpEventRepository.save(XpEvent.of(userId, amount, source, sourceId));
+        return grant(userId, amount, source, sourceId, null);
+    }
 
-        DailyActivity activity = dailyActivityRepository.findByUserIdAndActivityDate(userId, today)
-                .orElseGet(() -> dailyActivityRepository.save(
-                        DailyActivity.start(userId, today, goalXpOf(userId))));
+    /**
+     * Awards XP at most once for a client/server operation key.  The database claim is
+     * deliberately made before touching daily totals or streaks, so a network replay
+     * cannot duplicate any of the derived counters.
+     */
+    @Transactional
+    public GrantResult grant(UUID userId, int amount, XpSource source, UUID sourceId, UUID idempotencyKey) {
+        LocalDate today = LocalDate.now();
+        if (idempotencyKey != null
+                && xpEventRepository.claim(userId, amount, source.name(), sourceId, idempotencyKey) == 0) {
+            return new GrantResult(0, false, streakRepository.findById(userId)
+                    .map(Streak::getCurrent).orElse(0));
+        }
+        if (idempotencyKey == null) {
+            xpEventRepository.save(XpEvent.of(userId, amount, source, sourceId));
+        }
+
+        dailyActivityRepository.ensureToday(userId, today, goalXpOf(userId));
+        DailyActivity activity = dailyActivityRepository.findByUserIdAndActivityDateForUpdate(userId, today)
+                .orElseThrow(() -> new IllegalStateException("Daily activity was not created"));
         boolean goalReached = activity.addXp(amount);
         if (goalReached) {
             xpEventRepository.save(XpEvent.of(userId, DAILY_GOAL_BONUS_XP, XpSource.STREAK_BONUS, null));
@@ -54,7 +71,7 @@ public class GrantXpService {
             activity.registerReview();
         }
 
-        Streak streak = streakRepository.findById(userId)
+        Streak streak = streakRepository.findByIdForUpdate(userId)
                 .orElseGet(() -> streakRepository.save(Streak.create(userId)));
         streak.registerActivity(today);
 

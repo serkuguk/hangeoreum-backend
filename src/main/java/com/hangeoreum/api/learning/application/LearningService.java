@@ -12,10 +12,12 @@ import com.hangeoreum.api.shared.web.ApiException;
 import com.hangeoreum.api.vocabulary.api.WordDto;
 import com.hangeoreum.api.vocabulary.application.VocabularyService;
 import com.fasterxml.jackson.annotation.JsonRawValue;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -29,6 +31,7 @@ public class LearningService {
     private final LearningTipRepository tipRepository;
     private final ExerciseRepository exerciseRepository;
     private final LessonProgressRepository progressRepository;
+    private final LessonAttemptRepository attemptRepository;
     private final StoryRepository storyRepository;
     private final StoryLineRepository storyLineRepository;
     private final AlphabetLetterRepository letterRepository;
@@ -37,6 +40,7 @@ public class LearningService {
     private final GrantXpService grantXpService;
     private final VocabularyService vocabularyService;
     private final MediaService mediaService;
+    private final ObjectMapper objectMapper;
 
     // ---- course map ----
 
@@ -102,20 +106,11 @@ public class LearningService {
 
     @Transactional(readOnly = true)
     public LessonDto getLesson(UUID userId, UUID lessonId) {
-        Lesson lesson = publishedLesson(lessonId);
-        if (!lesson.isFree()) {
-            accessService.requirePro(userId, Feature.LESSON_PRO);
-        }
-        boolean alreadyCompleted = progressRepository.findByUserIdAndLessonId(userId, lessonId)
-                .map(p -> p.getStatus() == ProgressStatus.COMPLETED)
-                .orElse(false);
-        if (!accessService.isPro(userId) && !alreadyCompleted
-                && !AccessPolicy.withinFreeLessonLimit(grantXpService.lessonsCompletedToday(userId))) {
-            throw ApiException.forbidden("LIMIT_REACHED", "Daily free lesson limit reached");
-        }
+        Lesson lesson = requireLessonAccess(userId, lessonId);
         List<ExerciseDto> exercises = exerciseRepository.findByLessonIdOrderByPositionAsc(lessonId).stream()
                 .map(e -> new ExerciseDto(e.getId(), e.getKind(), e.getPosition(), e.getPayload()))
                 .toList();
+        requireNonEmptyPractice(lesson, exercises);
         return new LessonDto(lesson.getId(), lesson.getTitle(), lesson.getType(), lesson.getXpReward(), exercises);
     }
 
@@ -123,28 +118,49 @@ public class LearningService {
     }
 
     @Transactional(readOnly = true)
-    public TipDto getTip(UUID lessonId) {
-        publishedLesson(lessonId);
+    public TipDto getTip(UUID userId, UUID lessonId) {
+        requireLessonAccess(userId, lessonId);
         LearningTip tip = tipRepository.findByLessonId(lessonId)
                 .orElseThrow(() -> ApiException.notFound("Tip"));
         return new TipDto(tip.getId(), tip.getTitle(), tip.getBodyMd(), tip.getExamples());
     }
 
-    public record CompleteResult(int xp, List<WordDto> newWords, int streak, boolean goalReached) {
+    public record CompleteResult(UUID attemptId, Instant savedAt, int xp, List<WordDto> newWords,
+                                 int streak, boolean goalReached) {
     }
 
     @Transactional
-    public CompleteResult completeLesson(UUID userId, UUID lessonId, short score, short accuracy) {
-        Lesson lesson = publishedLesson(lessonId);
-        LessonProgress progress = progressRepository.findByUserIdAndLessonId(userId, lessonId)
-                .orElseGet(() -> progressRepository.save(LessonProgress.start(userId, lessonId)));
+    public CompleteResult completeLesson(UUID userId, UUID lessonId, UUID attemptId, short score, short accuracy) {
+        Lesson lesson = requireLessonAccess(userId, lessonId);
+        UUID receiptId = attemptId == null ? UUID.randomUUID() : attemptId;
+        if (attemptRepository.claim(receiptId, userId, lessonId, score, accuracy) == 0) {
+            LessonAttempt receipt = attemptRepository.findById(receiptId)
+                    .orElseThrow(() -> ApiException.conflict("Completion receipt is being processed"));
+            if (!receipt.matches(userId, lessonId, score, accuracy)) {
+                throw ApiException.conflict("Completion receipt does not match this request");
+            }
+            if (!receipt.isCompleted()) {
+                throw ApiException.conflict("Completion receipt is being processed");
+            }
+            return readResult(receipt);
+        }
+
+        progressRepository.ensureExists(userId, lessonId);
+        LessonProgress progress = progressRepository.findByUserIdAndLessonIdForUpdate(userId, lessonId)
+                .orElseThrow(() -> new IllegalStateException("Lesson progress was not created"));
         boolean repeat = progress.complete(score, accuracy);
 
         List<WordDto> newWords = vocabularyService.addLessonWords(userId, lessonId);
         int xp = repeat ? lesson.getXpReward() / 2 : lesson.getXpReward();
         XpSource source = lesson.getType() == LessonType.STORY ? XpSource.STORY : XpSource.LESSON;
-        GrantXpService.GrantResult granted = grantXpService.grant(userId, xp, source, lessonId);
-        return new CompleteResult(granted.xp(), newWords, granted.streakCurrent(), granted.goalReached());
+        GrantXpService.GrantResult granted = grantXpService.grant(userId, xp, source, lessonId, receiptId);
+        Instant savedAt = Instant.now();
+        CompleteResult result = new CompleteResult(receiptId, savedAt, granted.xp(), newWords,
+                granted.streakCurrent(), granted.goalReached());
+        LessonAttempt receipt = attemptRepository.findById(receiptId)
+                .orElseThrow(() -> new IllegalStateException("Completion receipt was not created"));
+        receipt.complete(writeResult(result), savedAt);
+        return result;
     }
 
     // ---- story ----
@@ -158,8 +174,11 @@ public class LearningService {
 
     @Transactional(readOnly = true)
     public StoryDto getStory(UUID userId, UUID lessonId) {
+        Lesson lesson = requireLessonAccess(userId, lessonId);
         accessService.requirePro(userId, Feature.STORY);
-        publishedLesson(lessonId);
+        if (lesson.getType() != LessonType.STORY) {
+            throw ApiException.notFound("Story");
+        }
         Story story = storyRepository.findByLessonId(lessonId)
                 .orElseThrow(() -> ApiException.notFound("Story"));
         List<StoryLineDto> lines = storyLineRepository.findByStoryIdOrderByPositionAsc(story.getId()).stream()
@@ -208,7 +227,9 @@ public class LearningService {
         boolean completed = total > 0 && learned >= total;
         if (completed) {
             // AlphabetCompletedEvent equivalent: award XP + achievements re-check
-            grantXpService.grant(userId, 20, XpSource.ACHIEVEMENT, null);
+            UUID completionKey = UUID.nameUUIDFromBytes(("alphabet-complete:v1:" + userId)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            grantXpService.grant(userId, 20, XpSource.ACHIEVEMENT, null, completionKey);
         }
         return new LetterLearnedResult(learned, total, completed);
     }
@@ -217,5 +238,48 @@ public class LearningService {
         return lessonRepository.findById(lessonId)
                 .filter(Lesson::isPublished)
                 .orElseThrow(() -> ApiException.notFound("Lesson"));
+    }
+
+    private Lesson requireLessonAccess(UUID userId, UUID lessonId) {
+        Lesson lesson = publishedLesson(lessonId);
+        CourseMap map = getCourseMap(userId);
+        LessonNode node = map.units().stream().flatMap(unit -> unit.lessons().stream())
+                .filter(candidate -> candidate.id().equals(lessonId)).findFirst()
+                .orElseThrow(() -> ApiException.notFound("Lesson"));
+        if (!accessService.isAdmin(userId) && "LOCKED".equals(node.status())) {
+            throw ApiException.forbidden("LESSON_LOCKED", "Complete the previous lesson first");
+        }
+        if (!node.hasAccess()) {
+            accessService.requirePro(userId, Feature.LESSON_PRO);
+        }
+        boolean alreadyCompleted = "COMPLETED".equals(node.status());
+        if (!accessService.isPro(userId) && !alreadyCompleted
+                && !AccessPolicy.withinFreeLessonLimit(grantXpService.lessonsCompletedToday(userId))) {
+            throw ApiException.forbidden("LIMIT_REACHED", "Daily free lesson limit reached");
+        }
+        return lesson;
+    }
+
+    private void requireNonEmptyPractice(Lesson lesson, List<ExerciseDto> exercises) {
+        if ((lesson.getType() == LessonType.LESSON || lesson.getType() == LessonType.GRAMMAR)
+                && exercises.isEmpty()) {
+            throw ApiException.conflict("LESSON_EMPTY");
+        }
+    }
+
+    private String writeResult(CompleteResult result) {
+        try {
+            return objectMapper.writeValueAsString(result);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Cannot store completion receipt", exception);
+        }
+    }
+
+    private CompleteResult readResult(LessonAttempt receipt) {
+        try {
+            return objectMapper.readValue(receipt.getResult(), CompleteResult.class);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Cannot read completion receipt", exception);
+        }
     }
 }

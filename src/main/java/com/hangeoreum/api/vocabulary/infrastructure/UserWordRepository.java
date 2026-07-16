@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 
 import java.time.LocalDate;
 import java.util.Collection;
@@ -17,6 +19,10 @@ import java.util.UUID;
 public interface UserWordRepository extends JpaRepository<UserWord, UUID> {
 
     Optional<UserWord> findByUserIdAndWordId(UUID userId, UUID wordId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select uw from UserWord uw where uw.userId = :userId and uw.word.id = :wordId")
+    Optional<UserWord> findByUserIdAndWordIdForUpdate(@Param("userId") UUID userId, @Param("wordId") UUID wordId);
 
     Optional<UserWord> findByIdAndUserId(UUID id, UUID userId);
 

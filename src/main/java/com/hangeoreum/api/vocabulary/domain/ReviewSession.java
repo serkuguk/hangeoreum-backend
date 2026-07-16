@@ -40,6 +40,8 @@ public class ReviewSession {
 
     private short xpEarned = 0;
 
+    private Integer streakAfter;
+
     public static ReviewSession start(UUID userId, ReviewMode mode) {
         ReviewSession session = new ReviewSession();
         session.userId = userId;
@@ -60,6 +62,10 @@ public class ReviewSession {
         this.finishedAt = Instant.now();
         this.xpEarned = (short) Math.min(correct, XP_CAP);
         return xpEarned;
+    }
+
+    public void saveStreakAfter(int streak) {
+        this.streakAfter = streak;
     }
 
     public boolean isFinished() {
