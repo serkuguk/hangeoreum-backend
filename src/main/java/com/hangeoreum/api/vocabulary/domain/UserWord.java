@@ -54,6 +54,11 @@ public class UserWord {
         this.dueDate = LocalDate.now().plusDays(result.intervalDays());
         // ponytail: stars = capped repetitions; refine with an EF-based mapping if UX asks
         this.level = (short) Math.min(5, result.repetitions());
+        if (quality < 3 && result.easeFactor() <= Sm2Algorithm.MIN_EASE_FACTOR) {
+            this.isDifficult = true;
+        } else if (quality >= 3 && result.repetitions() >= 2) {
+            this.isDifficult = false;
+        }
     }
 
     public void setDifficult(boolean difficult) {

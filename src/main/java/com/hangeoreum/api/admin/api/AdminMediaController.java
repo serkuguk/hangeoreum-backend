@@ -141,11 +141,18 @@ public class AdminMediaController {
                                   int startMs, int endMs) {
     }
 
+    @GetMapping("/clips/{id}/subtitles")
+    public List<Subtitle> getSubtitles(@PathVariable UUID id) {
+        requireClip(id);
+        return subtitleRepository.findByClipIdOrderByLangAscPositionAsc(id);
+    }
+
     @PutMapping("/clips/{id}/subtitles")
     @Transactional
     public List<Subtitle> putSubtitles(@PathVariable UUID id, @RequestBody List<@Valid SubtitleRequest> lines) {
         requireClip(id);
         subtitleRepository.deleteByClipId(id);
+        subtitleRepository.flush(); // deletes до inserts, иначе UNIQUE(clip_id,lang,position) на повторном сохранении
         return lines.stream()
                 .map(l -> subtitleRepository.save(
                         Subtitle.create(id, l.lang(), l.position(), l.text(), l.startMs(), l.endMs())))
