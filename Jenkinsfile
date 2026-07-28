@@ -59,9 +59,10 @@ pipeline {
                         SSH_OPTS="-i $SSH_KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS"
                         RELEASE_JAR="$DEPLOY_DIR/releases/$APP_NAME-$BUILD_NUMBER.jar"
 
-                        ssh $SSH_OPTS "$SSH_USER@$WINDOWS_HOST" "powershell -NoProfile -ExecutionPolicy Bypass -Command \"New-Item -ItemType Directory -Force -Path '$DEPLOY_DIR','$DEPLOY_DIR/releases','$DEPLOY_DIR/uploads' | Out-Null\""
+                        ssh $SSH_OPTS "$SSH_USER@$WINDOWS_HOST" "powershell -NoProfile -ExecutionPolicy Bypass -Command \"New-Item -ItemType Directory -Force -Path '$DEPLOY_DIR','$DEPLOY_DIR/releases','$DEPLOY_DIR/uploads','$DEPLOY_DIR/scripts' | Out-Null\""
                         scp $SSH_OPTS "$APP_JAR" "$SSH_USER@$WINDOWS_HOST:$RELEASE_JAR"
-                        ssh $SSH_OPTS "$SSH_USER@$WINDOWS_HOST" "powershell -NoProfile -ExecutionPolicy Bypass -Command \"\$ErrorActionPreference = 'Stop'; Stop-Service -Name '$SERVICE_NAME' -ErrorAction SilentlyContinue; Copy-Item -Force '$RELEASE_JAR' '$DEPLOY_DIR/app.jar'; Start-Service -Name '$SERVICE_NAME'; Start-Sleep -Seconds 10; if ((Get-Service -Name '$SERVICE_NAME').Status -ne 'Running') { throw 'Service $SERVICE_NAME is not running' }\""
+                        scp $SSH_OPTS "deploy/windows/install-coreano-service.ps1" "$SSH_USER@$WINDOWS_HOST:$DEPLOY_DIR/scripts/install-coreano-service.ps1"
+                        ssh $SSH_OPTS "$SSH_USER@$WINDOWS_HOST" "powershell -NoProfile -ExecutionPolicy Bypass -Command \"\$ErrorActionPreference = 'Stop'; Stop-Service -Name '$SERVICE_NAME' -ErrorAction SilentlyContinue; Copy-Item -Force '$RELEASE_JAR' '$DEPLOY_DIR/app.jar'; & '$DEPLOY_DIR/scripts/install-coreano-service.ps1' -ServiceName '$SERVICE_NAME' -DeployDir '$DEPLOY_DIR' -AppPort '$APP_PORT'; Start-Service -Name '$SERVICE_NAME'; Start-Sleep -Seconds 10; if ((Get-Service -Name '$SERVICE_NAME').Status -ne 'Running') { throw 'Service $SERVICE_NAME is not running' }\""
                     '''
                 }
             }
