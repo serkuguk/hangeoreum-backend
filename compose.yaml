@@ -1,3 +1,5 @@
+# Local development only. Production deploys the Spring Boot jar to a Windows
+# service via Jenkins and connects to an external PostgreSQL instance.
 services:
   postgres:
     image: postgres:16
