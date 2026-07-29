@@ -39,12 +39,19 @@ pipeline {
                     if (!env.APP_JAR) {
                         error('Built jar was not found in target/')
                     }
+
+                    stash(
+                        name: 'windows-deploy',
+                        includes: 'target/*.jar,deploy/windows/install-coreano-service.ps1,deploy/windows/known_hosts'
+                    )
                 }
             }
         }
 
         stage('Deploy to Windows Server') {
+            agent { label 'built-in' }
             steps {
+                unstash 'windows-deploy'
                 withCredentials([
                     sshUserPrivateKey(
                         credentialsId: 'node-windows-ssh',
@@ -52,49 +59,35 @@ pipeline {
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
-                    powershell '''
-                        $ErrorActionPreference = 'Stop'
-                        $null = & icacls.exe $env:SSH_KEY /inheritance:r /grant:r "$($env:USERNAME):(R)"
+                    sh '''
+                        set -eu
+                        chmod 600 "$SSH_KEY"
+                        jar="$(find target -maxdepth 1 -type f -name '*.jar' | head -n 1)"
+                        test -n "$jar"
+                        jar_name="$(basename "$jar")"
+                        release_name="$APP_NAME-$BUILD_NUMBER.jar"
+                        ssh_target="$SSH_USER@$WINDOWS_HOST"
+                        known_hosts="$WORKSPACE/deploy/windows/known_hosts"
 
-                        $sshTarget = "$($env:SSH_USER)@$($env:WINDOWS_HOST)"
-                        $sshExe = 'C:/Program Files/Git/usr/bin/ssh.exe'
-                        $scpExe = 'C:/Program Files/Git/usr/bin/scp.exe'
-                        $sshOpts = @(
-                            '-i', $env:SSH_KEY,
-                            '-p', $env:WINDOWS_SSH_PORT,
-                            '-T',
-                            '-o', 'IdentitiesOnly=yes',
-                            '-o', 'BatchMode=yes',
-                            '-o', 'ConnectTimeout=10',
-                            '-o', 'HostKeyAlgorithms=ssh-ed25519',
-                            '-o', 'StrictHostKeyChecking=yes',
-                            '-o', "UserKnownHostsFile=$env:WORKSPACE/deploy/windows/known_hosts"
-                        )
-                        $scpOpts = @(
-                            '-i', $env:SSH_KEY,
-                            '-P', $env:WINDOWS_SSH_PORT,
-                            '-o', 'IdentitiesOnly=yes',
-                            '-o', 'BatchMode=yes',
-                            '-o', 'ConnectTimeout=10',
-                            '-o', 'HostKeyAlgorithms=ssh-ed25519',
-                            '-o', 'StrictHostKeyChecking=yes',
-                            '-o', "UserKnownHostsFile=$env:WORKSPACE/deploy/windows/known_hosts"
-                        )
-                        $jarName = [IO.Path]::GetFileName($env:APP_JAR)
-                        $releaseName = "$($env:APP_NAME)-$($env:BUILD_NUMBER).jar"
+                        scp -i "$SSH_KEY" -P "$WINDOWS_SSH_PORT" \
+                            -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10 \
+                            -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
+                            -o "UserKnownHostsFile=$known_hosts" \
+                            "$jar" deploy/windows/install-coreano-service.ps1 "${ssh_target}:./"
 
-                        $ErrorActionPreference = 'Continue'
-                        & $scpExe @scpOpts $env:APP_JAR "deploy/windows/install-coreano-service.ps1" "$sshTarget`:./"
-                        if ($LASTEXITCODE) { exit $LASTEXITCODE }
-                        Start-Sleep -Seconds 2
-                        & $sshExe -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -File install-coreano-service.ps1 -ServiceName $env:SERVICE_NAME -DeployDir $env:DEPLOY_DIR -AppPort $env:APP_PORT -ReleaseJar $jarName -ReleaseName $releaseName"
-                        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+                        ssh -n -T -i "$SSH_KEY" -p "$WINDOWS_SSH_PORT" \
+                            -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10 \
+                            -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
+                            -o "UserKnownHostsFile=$known_hosts" \
+                            "$ssh_target" \
+                            "powershell -NoProfile -ExecutionPolicy Bypass -File install-coreano-service.ps1 -ServiceName $SERVICE_NAME -DeployDir $DEPLOY_DIR -AppPort $APP_PORT -ReleaseJar $jar_name -ReleaseName $release_name"
                     '''
                 }
             }
         }
 
         stage('Health Check') {
+            agent { label 'built-in' }
             steps {
                 withCredentials([
                     sshUserPrivateKey(
@@ -103,27 +96,15 @@ pipeline {
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
-                    powershell '''
-                        $ErrorActionPreference = 'Stop'
-                        $null = & icacls.exe $env:SSH_KEY /inheritance:r /grant:r "$($env:USERNAME):(R)"
-
-                        $sshTarget = "$($env:SSH_USER)@$($env:WINDOWS_HOST)"
-                        $sshExe = 'C:/Program Files/Git/usr/bin/ssh.exe'
-                        $sshOpts = @(
-                            '-i', $env:SSH_KEY,
-                            '-p', $env:WINDOWS_SSH_PORT,
-                            '-T',
-                            '-o', 'IdentitiesOnly=yes',
-                            '-o', 'BatchMode=yes',
-                            '-o', 'ConnectTimeout=10',
-                            '-o', 'HostKeyAlgorithms=ssh-ed25519',
-                            '-o', 'StrictHostKeyChecking=yes',
-                            '-o', "UserKnownHostsFile=$env:WORKSPACE/deploy/windows/known_hosts"
-                        )
-
-                        $ErrorActionPreference = 'Continue'
-                        & $sshExe -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command Invoke-RestMethod -Uri http://localhost:$env:APP_PORT/actuator/health -TimeoutSec 20"
-                        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+                    sh '''
+                        set -eu
+                        chmod 600 "$SSH_KEY"
+                        ssh -n -T -i "$SSH_KEY" -p "$WINDOWS_SSH_PORT" \
+                            -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10 \
+                            -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
+                            -o "UserKnownHostsFile=$WORKSPACE/deploy/windows/known_hosts" \
+                            "$SSH_USER@$WINDOWS_HOST" \
+                            "powershell -NoProfile -ExecutionPolicy Bypass -Command Invoke-RestMethod -Uri http://localhost:$APP_PORT/actuator/health -TimeoutSec 20"
                     '''
                 }
             }
