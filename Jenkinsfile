@@ -22,15 +22,15 @@ pipeline {
 
         stage('Build and Test') {
             steps {
-                sh 'chmod +x mvnw'
-                sh './mvnw clean test package'
+                bat 'chmod +x mvnw'
+                bat './mvnw clean test package'
             }
         }
 
         stage('Find Artifact') {
             steps {
                 script {
-                    env.APP_JAR = sh(
+                    env.APP_JAR = bat(
                         script: "find target -maxdepth 1 -name '*.jar' ! -name '*.original' | head -n 1",
                         returnStdout: true
                     ).trim()
@@ -53,7 +53,7 @@ pipeline {
                     file(credentialsId: 'coreano-windows-known-hosts', variable: 'KNOWN_HOSTS'),
                     string(credentialsId: 'coreano-windows-host', variable: 'WINDOWS_HOST')
                 ]) {
-                    sh '''
+                    bat '''
                         set -eu
 
                         SSH_OPTS="-i $SSH_KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS"
@@ -79,7 +79,7 @@ pipeline {
                     file(credentialsId: 'coreano-windows-known-hosts', variable: 'KNOWN_HOSTS'),
                     string(credentialsId: 'coreano-windows-host', variable: 'WINDOWS_HOST')
                 ]) {
-                    sh '''
+                    bat '''
                         set -eu
 
                         SSH_OPTS="-i $SSH_KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS"
