@@ -1,8 +1,7 @@
 pipeline {
     agent { label 'windows' }
-    options { disableConcurrentBuilds() }
-
     options {
+        disableConcurrentBuilds()
         timestamps()
     }
 
