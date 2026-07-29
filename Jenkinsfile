@@ -30,7 +30,7 @@ pipeline {
             steps {
                 script {
                     env.APP_JAR = powershell(
-                        script: "(Get-ChildItem -Path target -Filter *.jar | Where-Object { `$_.Name -notlike '*.original' } | Select-Object -First 1).FullName",
+                        script: '''(Get-ChildItem -Path target -Filter *.jar | Where-Object { $_.Name -notlike '*.original' } | Select-Object -First 1).FullName''',
                         returnStdout: true
                     ).trim()
 
