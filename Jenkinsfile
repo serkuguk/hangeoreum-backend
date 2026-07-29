@@ -57,9 +57,12 @@ pipeline {
                         $null = & icacls.exe $env:SSH_KEY /inheritance:r /grant:r "$($env:USERNAME):(R)"
 
                         $sshTarget = "$($env:SSH_USER)@$($env:WINDOWS_HOST)"
+                        $sshExe = 'C:/Program Files/Git/usr/bin/ssh.exe'
+                        $scpExe = 'C:/Program Files/Git/usr/bin/scp.exe'
                         $sshOpts = @(
                             '-i', $env:SSH_KEY,
                             '-p', $env:WINDOWS_SSH_PORT,
+                            '-T',
                             '-o', 'IdentitiesOnly=yes',
                             '-o', 'BatchMode=yes',
                             '-o', 'ConnectTimeout=10',
@@ -80,13 +83,13 @@ pipeline {
                         $releaseJar = "$($env:DEPLOY_DIR)/releases/$($env:APP_NAME)-$($env:BUILD_NUMBER).jar"
 
                         $ErrorActionPreference = 'Continue'
-                        ssh -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"New-Item -ItemType Directory -Force -Path '$env:DEPLOY_DIR','$env:DEPLOY_DIR/releases','$env:DEPLOY_DIR/uploads','$env:DEPLOY_DIR/scripts'`""
+                        & $sshExe -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"New-Item -ItemType Directory -Force -Path '$env:DEPLOY_DIR','$env:DEPLOY_DIR/releases','$env:DEPLOY_DIR/uploads','$env:DEPLOY_DIR/scripts'`""
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
-                        scp @scpOpts $env:APP_JAR "$sshTarget`:$releaseJar"
+                        & $scpExe @scpOpts $env:APP_JAR "$sshTarget`:$releaseJar"
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
-                        scp @scpOpts "deploy/windows/install-coreano-service.ps1" "$sshTarget`:$($env:DEPLOY_DIR)/scripts/install-coreano-service.ps1"
+                        & $scpExe @scpOpts "deploy/windows/install-coreano-service.ps1" "$sshTarget`:$($env:DEPLOY_DIR)/scripts/install-coreano-service.ps1"
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
-                        ssh -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"`$ErrorActionPreference = 'Stop'; Stop-Service -Name '$env:SERVICE_NAME' -ErrorAction SilentlyContinue; Copy-Item -Force '$releaseJar' '$env:DEPLOY_DIR/app.jar'; & '$env:DEPLOY_DIR/scripts/install-coreano-service.ps1' -ServiceName '$env:SERVICE_NAME' -DeployDir '$env:DEPLOY_DIR' -AppPort '$env:APP_PORT'; Start-Service -Name '$env:SERVICE_NAME'; Start-Sleep -Seconds 10; if ((Get-Service -Name '$env:SERVICE_NAME').Status -ne 'Running') { throw 'Service $env:SERVICE_NAME is not running' }`""
+                        & $sshExe -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"`$ErrorActionPreference = 'Stop'; Stop-Service -Name '$env:SERVICE_NAME' -ErrorAction SilentlyContinue; Copy-Item -Force '$releaseJar' '$env:DEPLOY_DIR/app.jar'; & '$env:DEPLOY_DIR/scripts/install-coreano-service.ps1' -ServiceName '$env:SERVICE_NAME' -DeployDir '$env:DEPLOY_DIR' -AppPort '$env:APP_PORT'; Start-Service -Name '$env:SERVICE_NAME'; Start-Sleep -Seconds 10; if ((Get-Service -Name '$env:SERVICE_NAME').Status -ne 'Running') { throw 'Service $env:SERVICE_NAME is not running' }`""
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
                     '''
                 }
@@ -107,9 +110,11 @@ pipeline {
                         $null = & icacls.exe $env:SSH_KEY /inheritance:r /grant:r "$($env:USERNAME):(R)"
 
                         $sshTarget = "$($env:SSH_USER)@$($env:WINDOWS_HOST)"
+                        $sshExe = 'C:/Program Files/Git/usr/bin/ssh.exe'
                         $sshOpts = @(
                             '-i', $env:SSH_KEY,
                             '-p', $env:WINDOWS_SSH_PORT,
+                            '-T',
                             '-o', 'IdentitiesOnly=yes',
                             '-o', 'BatchMode=yes',
                             '-o', 'ConnectTimeout=10',
@@ -119,7 +124,7 @@ pipeline {
                         )
 
                         $ErrorActionPreference = 'Continue'
-                        ssh -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"Invoke-RestMethod -Uri 'http://localhost:$env:APP_PORT/actuator/health' -TimeoutSec 20 | ConvertTo-Json -Compress`""
+                        & $sshExe -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"Invoke-RestMethod -Uri 'http://localhost:$env:APP_PORT/actuator/health' -TimeoutSec 20 | ConvertTo-Json -Compress`""
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
                     '''
                 }
