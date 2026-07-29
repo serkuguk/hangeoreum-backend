@@ -76,7 +76,7 @@ pipeline {
                         $releaseJar = "$($env:DEPLOY_DIR)/releases/$($env:APP_NAME)-$($env:BUILD_NUMBER).jar"
 
                         $ErrorActionPreference = 'Continue'
-                        ssh @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"New-Item -ItemType Directory -Force -Path '$env:DEPLOY_DIR','$env:DEPLOY_DIR/releases','$env:DEPLOY_DIR/uploads','$env:DEPLOY_DIR/scripts' | Out-Null`""
+                        ssh @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"New-Item -ItemType Directory -Force -Path '$env:DEPLOY_DIR','$env:DEPLOY_DIR/releases','$env:DEPLOY_DIR/uploads','$env:DEPLOY_DIR/scripts'`""
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
                         scp @scpOpts $env:APP_JAR "$sshTarget`:$releaseJar"
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
