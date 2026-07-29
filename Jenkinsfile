@@ -11,7 +11,7 @@ pipeline {
         DEPLOY_DIR = 'C:/apps/coreano-api'
         SERVICE_NAME = 'coreano-api'
         GIT_REPO = 'https://github.com/serkuguk/hangeoreum-backend.git'
-        WINDOWS_HOST = 'localhost'
+        WINDOWS_HOST = '192.168.10.96'
         WINDOWS_SSH_PORT = '2222'
     }
 
