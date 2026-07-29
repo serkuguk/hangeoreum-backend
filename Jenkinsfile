@@ -96,16 +96,19 @@ pipeline {
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
-                    sh '''
-                        set -eu
-                        chmod 600 "$SSH_KEY"
-                        ssh -n -T -i "$SSH_KEY" -p "$WINDOWS_SSH_PORT" \
-                            -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10 \
-                            -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
-                            -o "UserKnownHostsFile=$WORKSPACE/deploy/windows/known_hosts" \
-                            "$SSH_USER@$WINDOWS_HOST" \
-                            "powershell -NoProfile -ExecutionPolicy Bypass -Command Invoke-RestMethod -Uri http://localhost:$APP_PORT/actuator/health -TimeoutSec 20"
-                    '''
+                    retry(12) {
+                        sh '''
+                            set -eu
+                            sleep 5
+                            chmod 600 "$SSH_KEY"
+                            ssh -n -T -i "$SSH_KEY" -p "$WINDOWS_SSH_PORT" \
+                                -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10 \
+                                -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
+                                -o "UserKnownHostsFile=$WORKSPACE/deploy/windows/known_hosts" \
+                                "$SSH_USER@$WINDOWS_HOST" \
+                                "powershell -NoProfile -ExecutionPolicy Bypass -Command Invoke-RestMethod -Uri http://localhost:$APP_PORT/actuator/health -TimeoutSec 20"
+                        '''
+                    }
                 }
             }
         }
