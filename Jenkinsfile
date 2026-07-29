@@ -89,7 +89,7 @@ pipeline {
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
                         & $scpExe @scpOpts "deploy/windows/install-coreano-service.ps1" "$sshTarget`:$($env:DEPLOY_DIR)/scripts/install-coreano-service.ps1"
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
-                        & $sshExe -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"`$ErrorActionPreference = [Management.Automation.ActionPreference]::Stop; Stop-Service -Name $env:SERVICE_NAME -ErrorAction SilentlyContinue; Copy-Item -Force $releaseJar $env:DEPLOY_DIR/app.jar; & $env:DEPLOY_DIR/scripts/install-coreano-service.ps1 -ServiceName $env:SERVICE_NAME -DeployDir $env:DEPLOY_DIR -AppPort $env:APP_PORT; Start-Service -Name $env:SERVICE_NAME; Start-Sleep -Seconds 10; if ((Get-Service -Name $env:SERVICE_NAME).Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) { exit 1 }`""
+                        & $sshExe -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -File $env:DEPLOY_DIR/scripts/install-coreano-service.ps1 -ServiceName $env:SERVICE_NAME -DeployDir $env:DEPLOY_DIR -AppPort $env:APP_PORT -ReleaseJar $releaseJar"
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
                     '''
                 }
@@ -124,7 +124,7 @@ pipeline {
                         )
 
                         $ErrorActionPreference = 'Continue'
-                        & $sshExe -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"Invoke-RestMethod -Uri http://localhost:$env:APP_PORT/actuator/health -TimeoutSec 20 | ConvertTo-Json -Compress`""
+                        & $sshExe -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command Invoke-RestMethod -Uri http://localhost:$env:APP_PORT/actuator/health -TimeoutSec 20"
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
                     '''
                 }
