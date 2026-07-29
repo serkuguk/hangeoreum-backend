@@ -54,6 +54,7 @@ pipeline {
                 ]) {
                     powershell '''
                         $ErrorActionPreference = 'Stop'
+                        icacls $env:SSH_KEY /inheritance:r /grant:r "$env:USERNAME:R" | Out-Null
 
                         $sshTarget = "$($env:SSH_USER)@$($env:WINDOWS_HOST)"
                         $sshOpts = @(
@@ -74,6 +75,7 @@ pipeline {
                         )
                         $releaseJar = "$($env:DEPLOY_DIR)/releases/$($env:APP_NAME)-$($env:BUILD_NUMBER).jar"
 
+                        $ErrorActionPreference = 'Continue'
                         ssh @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"New-Item -ItemType Directory -Force -Path '$env:DEPLOY_DIR','$env:DEPLOY_DIR/releases','$env:DEPLOY_DIR/uploads','$env:DEPLOY_DIR/scripts' | Out-Null`""
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
                         scp @scpOpts $env:APP_JAR "$sshTarget`:$releaseJar"
@@ -98,6 +100,7 @@ pipeline {
                 ]) {
                     powershell '''
                         $ErrorActionPreference = 'Stop'
+                        icacls $env:SSH_KEY /inheritance:r /grant:r "$env:USERNAME:R" | Out-Null
 
                         $sshTarget = "$($env:SSH_USER)@$($env:WINDOWS_HOST)"
                         $sshOpts = @(
@@ -109,6 +112,7 @@ pipeline {
                             '-o', "UserKnownHostsFile=$env:WORKSPACE/deploy/windows/known_hosts"
                         )
 
+                        $ErrorActionPreference = 'Continue'
                         ssh @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"Invoke-RestMethod -Uri 'http://localhost:$env:APP_PORT/actuator/health' -TimeoutSec 20 | ConvertTo-Json -Compress`""
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
                     '''
