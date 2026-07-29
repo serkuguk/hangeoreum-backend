@@ -54,7 +54,7 @@ pipeline {
                 ]) {
                     powershell '''
                         $ErrorActionPreference = 'Stop'
-                        icacls $env:SSH_KEY /inheritance:r /grant:r "$env:USERNAME:R" | Out-Null
+                        icacls $env:SSH_KEY /inheritance:r /grant:r "$($env:USERNAME):(R)" | Out-Null
 
                         $sshTarget = "$($env:SSH_USER)@$($env:WINDOWS_HOST)"
                         $sshOpts = @(
@@ -100,7 +100,7 @@ pipeline {
                 ]) {
                     powershell '''
                         $ErrorActionPreference = 'Stop'
-                        icacls $env:SSH_KEY /inheritance:r /grant:r "$env:USERNAME:R" | Out-Null
+                        icacls $env:SSH_KEY /inheritance:r /grant:r "$($env:USERNAME):(R)" | Out-Null
 
                         $sshTarget = "$($env:SSH_USER)@$($env:WINDOWS_HOST)"
                         $sshOpts = @(
