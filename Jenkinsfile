@@ -61,6 +61,7 @@ pipeline {
                             '-i', $env:SSH_KEY,
                             '-p', $env:WINDOWS_SSH_PORT,
                             '-o', 'IdentitiesOnly=yes',
+                            '-o', 'BatchMode=yes',
                             '-o', 'HostKeyAlgorithms=ssh-ed25519',
                             '-o', 'StrictHostKeyChecking=yes',
                             '-o', "UserKnownHostsFile=$env:WORKSPACE/deploy/windows/known_hosts"
@@ -69,6 +70,7 @@ pipeline {
                             '-i', $env:SSH_KEY,
                             '-P', $env:WINDOWS_SSH_PORT,
                             '-o', 'IdentitiesOnly=yes',
+                            '-o', 'BatchMode=yes',
                             '-o', 'HostKeyAlgorithms=ssh-ed25519',
                             '-o', 'StrictHostKeyChecking=yes',
                             '-o', "UserKnownHostsFile=$env:WORKSPACE/deploy/windows/known_hosts"
@@ -107,6 +109,7 @@ pipeline {
                             '-i', $env:SSH_KEY,
                             '-p', $env:WINDOWS_SSH_PORT,
                             '-o', 'IdentitiesOnly=yes',
+                            '-o', 'BatchMode=yes',
                             '-o', 'HostKeyAlgorithms=ssh-ed25519',
                             '-o', 'StrictHostKeyChecking=yes',
                             '-o', "UserKnownHostsFile=$env:WORKSPACE/deploy/windows/known_hosts"
