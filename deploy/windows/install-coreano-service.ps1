@@ -15,6 +15,14 @@ $logsDir = Join-Path $DeployDir "logs"
 
 New-Item -ItemType Directory -Force -Path $DeployDir, $releasesDir, $uploadsDir, $logsDir | Out-Null
 
+$service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if (!$service) {
+    $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+    if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        throw "Service $ServiceName does not exist and SSH user $env:USERNAME is not an administrator. Create the service once as Administrator or use an administrator SSH credential."
+    }
+}
+
 if ($ReleaseJar) {
     if (!(Test-Path $ReleaseJar)) {
         throw "Release jar was not found: $ReleaseJar"
@@ -34,7 +42,6 @@ if (!(Test-Path $appJar)) {
     throw "Application jar was not found: $appJar"
 }
 
-$service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($service) {
     Write-Host "Service $ServiceName already exists."
 } else {
