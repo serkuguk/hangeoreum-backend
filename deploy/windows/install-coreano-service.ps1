@@ -3,7 +3,8 @@ param(
     [string]$DeployDir = "C:\apps\coreano-api",
     [string]$AppPort = "8082",
     [string]$ReleaseJar,
-    [string]$ReleaseName
+    [string]$ReleaseName,
+    [string]$DeployUser = "jenkins"
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,6 +68,27 @@ if ($service) {
     & $nssm set $ServiceName AppRotateOnline 1
     & $nssm set $ServiceName AppEnvironmentExtra "SERVER_PORT=$AppPort" "MEDIA_DIR=$uploadsDir"
     & $nssm set $ServiceName Start SERVICE_AUTO_START
+
+    $deploySid = [Security.Principal.NTAccount]::new($env:COMPUTERNAME, $DeployUser).
+        Translate([Security.Principal.SecurityIdentifier]).Value
+    $serviceSddl = (& sc.exe sdshow $ServiceName | Where-Object { $_ -like "D:*" } | Select-Object -First 1)
+    if (!$serviceSddl) {
+        throw "Could not read the security descriptor for service $ServiceName."
+    }
+
+    $serviceAce = "(A;;CCLCSWRPWPDTLOCRRC;;;$deploySid)"
+    if ($serviceSddl -notlike "*$deploySid*") {
+        $serviceSddl = if ($serviceSddl -match "^(.*?)(S:.*)$") {
+            "$($Matches[1])$serviceAce$($Matches[2])"
+        } else {
+            "$serviceSddl$serviceAce"
+        }
+
+        & sc.exe sdset $ServiceName $serviceSddl | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not grant $DeployUser control of service $ServiceName."
+        }
+    }
 
     Write-Host "Service $ServiceName was created."
 }
