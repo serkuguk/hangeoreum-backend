@@ -1,5 +1,6 @@
 pipeline {
     agent { label 'windows' }
+    options { disableConcurrentBuilds() }
 
     options {
         timestamps()
@@ -80,16 +81,14 @@ pipeline {
                             '-o', 'StrictHostKeyChecking=yes',
                             '-o', "UserKnownHostsFile=$env:WORKSPACE/deploy/windows/known_hosts"
                         )
-                        $releaseJar = "$($env:DEPLOY_DIR)/releases/$($env:APP_NAME)-$($env:BUILD_NUMBER).jar"
+                        $jarName = [IO.Path]::GetFileName($env:APP_JAR)
+                        $releaseName = "$($env:APP_NAME)-$($env:BUILD_NUMBER).jar"
 
                         $ErrorActionPreference = 'Continue'
-                        & $sshExe -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -Command `"New-Item -ItemType Directory -Force -Path $env:DEPLOY_DIR,$env:DEPLOY_DIR/releases,$env:DEPLOY_DIR/uploads,$env:DEPLOY_DIR/scripts`""
+                        & $scpExe @scpOpts $env:APP_JAR "deploy/windows/install-coreano-service.ps1" "$sshTarget`:./"
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
-                        & $scpExe @scpOpts $env:APP_JAR "$sshTarget`:$releaseJar"
-                        if ($LASTEXITCODE) { exit $LASTEXITCODE }
-                        & $scpExe @scpOpts "deploy/windows/install-coreano-service.ps1" "$sshTarget`:$($env:DEPLOY_DIR)/scripts/install-coreano-service.ps1"
-                        if ($LASTEXITCODE) { exit $LASTEXITCODE }
-                        & $sshExe -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -File $env:DEPLOY_DIR/scripts/install-coreano-service.ps1 -ServiceName $env:SERVICE_NAME -DeployDir $env:DEPLOY_DIR -AppPort $env:APP_PORT -ReleaseJar $releaseJar"
+                        Start-Sleep -Seconds 2
+                        & $sshExe -n @sshOpts $sshTarget "powershell -NoProfile -ExecutionPolicy Bypass -File install-coreano-service.ps1 -ServiceName $env:SERVICE_NAME -DeployDir $env:DEPLOY_DIR -AppPort $env:APP_PORT -ReleaseJar $jarName -ReleaseName $releaseName"
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
                     '''
                 }

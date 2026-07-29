@@ -2,24 +2,32 @@ param(
     [string]$ServiceName = "coreano-api",
     [string]$DeployDir = "C:\apps\coreano-api",
     [string]$AppPort = "8082",
-    [string]$ReleaseJar
+    [string]$ReleaseJar,
+    [string]$ReleaseName
 )
 
 $ErrorActionPreference = "Stop"
 
 $appJar = Join-Path $DeployDir "app.jar"
+$releasesDir = Join-Path $DeployDir "releases"
 $uploadsDir = Join-Path $DeployDir "uploads"
 $logsDir = Join-Path $DeployDir "logs"
 
-New-Item -ItemType Directory -Force -Path $DeployDir, $uploadsDir, $logsDir | Out-Null
+New-Item -ItemType Directory -Force -Path $DeployDir, $releasesDir, $uploadsDir, $logsDir | Out-Null
 
 if ($ReleaseJar) {
     if (!(Test-Path $ReleaseJar)) {
         throw "Release jar was not found: $ReleaseJar"
     }
 
+    if (!$ReleaseName) {
+        $ReleaseName = Split-Path $ReleaseJar -Leaf
+    }
+
+    $archivedJar = Join-Path $releasesDir $ReleaseName
     Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-    Copy-Item -Force $ReleaseJar $appJar
+    Copy-Item -Force $ReleaseJar $archivedJar
+    Copy-Item -Force $archivedJar $appJar
 }
 
 if (!(Test-Path $appJar)) {
