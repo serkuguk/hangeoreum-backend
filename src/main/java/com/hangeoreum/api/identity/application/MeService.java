@@ -69,7 +69,11 @@ public class MeService {
 
     @Transactional
     public void changePassword(UUID userId, String current, String next) {
-        get(userId).changePassword(passwordEncoder, current, next);
+        User user = get(userId);
+        if (!user.hasPassword() || !passwordEncoder.matches(current, user.getPasswordHash())) {
+            throw ApiException.badRequest("Current password is incorrect");
+        }
+        user.changePasswordHash(passwordEncoder.encode(next));
     }
 
     @Transactional

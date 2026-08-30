@@ -1,6 +1,7 @@
 package com.hangeoreum.api.vocabulary.application;
 
 import com.hangeoreum.api.shared.web.ApiException;
+import com.hangeoreum.api.shared.events.contract.LessonWordsAdded;
 import com.hangeoreum.api.vocabulary.api.UserWordDto;
 import com.hangeoreum.api.vocabulary.api.WordDto;
 import com.hangeoreum.api.vocabulary.domain.*;
@@ -30,7 +31,7 @@ public class VocabularyService {
 
     /** Called on lesson completion: puts the lesson's words into the user's SRS queue. */
     @Transactional
-    public List<WordDto> addLessonWords(UUID userId, UUID lessonId) {
+    public List<LessonWordsAdded.Word> addLessonWords(UUID userId, UUID lessonId) {
         List<UUID> insertedIds = jdbcTemplate.queryForList("""
                 insert into user_words (user_id, word_id)
                 select ?, lw.word_id from lesson_words lw where lw.lesson_id = ?
@@ -40,7 +41,7 @@ public class VocabularyService {
         var inserted = wordRepository.findAllById(insertedIds).stream()
                 .collect(java.util.stream.Collectors.toMap(Word::getId, word -> word));
         return insertedIds.stream().map(inserted::get).filter(java.util.Objects::nonNull)
-                .map(WordDto::from).toList();
+                .map(word -> new LessonWordsAdded.Word(word.getId(), word.getHangul(), word.getRomanization(), word.getTranslation())).toList();
     }
 
     @Transactional

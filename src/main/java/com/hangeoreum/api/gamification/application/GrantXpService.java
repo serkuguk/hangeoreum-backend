@@ -8,7 +8,7 @@ import com.hangeoreum.api.gamification.infrastructure.DailyActivityRepository;
 import com.hangeoreum.api.gamification.infrastructure.StreakRepository;
 import com.hangeoreum.api.gamification.infrastructure.XpEventRepository;
 import com.hangeoreum.api.identity.domain.event.UserRegisteredEvent;
-import com.hangeoreum.api.identity.infrastructure.UserSettingsRepository;
+import com.hangeoreum.api.identity.application.IdentityQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -27,7 +27,7 @@ public class GrantXpService {
     private final XpEventRepository xpEventRepository;
     private final DailyActivityRepository dailyActivityRepository;
     private final StreakRepository streakRepository;
-    private final UserSettingsRepository userSettingsRepository;
+    private final IdentityQueryService identityQueryService;
     private final AchievementChecker achievementChecker;
 
     public record GrantResult(int xp, boolean goalReached, int streakCurrent) {
@@ -88,9 +88,7 @@ public class GrantXpService {
     }
 
     private short goalXpOf(UUID userId) {
-        return userSettingsRepository.findById(userId)
-                .map(s -> s.getDailyGoalXp())
-                .orElse((short) 20);
+        return identityQueryService.dailyGoalXp(userId);
     }
 
     @EventListener

@@ -9,6 +9,7 @@ pipeline {
         APP_NAME = 'coreano-api'
         APP_PORT = '8082'
         DEPLOY_DIR = 'C:/apps/coreano-api'
+        ENV_FILE = 'C:/apps/coreano-api/coreano-api.env'
         SERVICE_NAME = 'coreano-api'
         GIT_REPO = 'https://github.com/serkuguk/hangeoreum-backend.git'
         WINDOWS_HOST = '192.168.10.96'
@@ -80,7 +81,7 @@ pipeline {
                             -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
                             -o "UserKnownHostsFile=$known_hosts" \
                             "$ssh_target" \
-                            "powershell -NoProfile -ExecutionPolicy Bypass -File install-coreano-service.ps1 -ServiceName $SERVICE_NAME -DeployDir $DEPLOY_DIR -AppPort $APP_PORT -ReleaseJar $jar_name -ReleaseName $release_name"
+                            "powershell -NoProfile -ExecutionPolicy Bypass -File install-coreano-service.ps1 -ServiceName $SERVICE_NAME -DeployDir $DEPLOY_DIR -AppPort $APP_PORT -EnvFile $ENV_FILE -ReleaseJar $jar_name -ReleaseName $release_name"
                     '''
                 }
             }

@@ -4,18 +4,12 @@ import com.hangeoreum.api.gamification.domain.DailyActivity;
 import com.hangeoreum.api.gamification.domain.Level;
 import com.hangeoreum.api.gamification.domain.Streak;
 import com.hangeoreum.api.gamification.infrastructure.*;
-import com.hangeoreum.api.identity.domain.User;
-import com.hangeoreum.api.identity.infrastructure.UserRepository;
-import com.hangeoreum.api.identity.infrastructure.UserSettingsRepository;
+import com.hangeoreum.api.identity.application.IdentityQueryService;
 import com.hangeoreum.api.learning.application.LearningService;
-import com.hangeoreum.api.learning.domain.ProgressStatus;
-import com.hangeoreum.api.learning.infrastructure.LessonProgressRepository;
+import com.hangeoreum.api.learning.application.LearningQueryService;
 import com.hangeoreum.api.shared.web.ApiException;
-import com.hangeoreum.api.vocabulary.api.WordDto;
-import com.hangeoreum.api.vocabulary.infrastructure.UserWordRepository;
-import com.hangeoreum.api.vocabulary.infrastructure.WordRepository;
+import com.hangeoreum.api.vocabulary.application.VocabularyQueryService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,11 +30,9 @@ public class DashboardService {
     private final LevelRepository levelRepository;
     private final UserAchievementRepository userAchievementRepository;
     private final AchievementRepository achievementRepository;
-    private final UserRepository userRepository;
-    private final UserSettingsRepository userSettingsRepository;
-    private final UserWordRepository userWordRepository;
-    private final WordRepository wordRepository;
-    private final LessonProgressRepository lessonProgressRepository;
+    private final IdentityQueryService identityQueryService;
+    private final VocabularyQueryService vocabularyQueryService;
+    private final LearningQueryService learningQueryService;
     private final LearningService learningService;
 
     public record GoalDto(int goalXp, int earnedXp, boolean reached) {
@@ -49,7 +41,7 @@ public class DashboardService {
     public record NextLessonDto(UUID id, String title, String type) {
     }
 
-    public record Dashboard(GoalDto goal, WordDto wordOfDay, long dueWords, List<NextLessonDto> nextLessons,
+    public record Dashboard(GoalDto goal, VocabularyQueryService.WordSummary wordOfDay, long dueWords, List<NextLessonDto> nextLessons,
                             List<Integer> weekXp, int streak, long totalXp, long wordsLearned,
                             long lessonsCompleted) {
     }
@@ -57,8 +49,7 @@ public class DashboardService {
     @Transactional(readOnly = true)
     public Dashboard getDashboard(UUID userId) {
         LocalDate today = LocalDate.now();
-        short goalXp = userSettingsRepository.findById(userId)
-                .map(s -> s.getDailyGoalXp()).orElse((short) 20);
+        short goalXp = identityQueryService.dailyGoalXp(userId);
         DailyActivity activity = dailyActivityRepository.findByUserIdAndActivityDate(userId, today).orElse(null);
         int earned = activity == null ? 0 : activity.getXpEarned();
         GoalDto goal = new GoalDto(goalXp, earned, earned >= goalXp);
@@ -81,25 +72,12 @@ public class DashboardService {
             }
         }
 
-        return new Dashboard(goal, wordOfDay(userId),
-                userWordRepository.countByUserIdAndDueDateLessThanEqual(userId, today),
+        return new Dashboard(goal, vocabularyQueryService.wordOfDay(userId, today),
+                vocabularyQueryService.dueWordCount(userId, today),
                 nextLessons, weekXp,
                 streakRepository.findById(userId).map(Streak::getCurrent).orElse(0),
                 xpEventRepository.totalXp(userId),
-                userWordRepository.countByUserIdAndLevelGreaterThanEqual(userId, (short) 1),
-                lessonProgressRepository.countByUserIdAndStatus(userId, ProgressStatus.COMPLETED));
-    }
-
-    /** Deterministic pick by (date, userId) hash — no extra table. */
-    private WordDto wordOfDay(UUID userId) {
-        long count = wordRepository.count();
-        if (count == 0) {
-            return null;
-        }
-        int index = Math.floorMod(Objects.hash(LocalDate.now(), userId), (int) Math.min(count, Integer.MAX_VALUE));
-        var page = wordRepository.findAll(PageRequest.of(index, 1,
-                org.springframework.data.domain.Sort.by("createdAt", "id")));
-        return page.hasContent() ? WordDto.from(page.getContent().getFirst()) : null;
+                vocabularyQueryService.learnedWordCount(userId), learningQueryService.completedLessonCount(userId));
     }
 
     public record ProfileDto(UUID id, String name, String email, String avatarUrl, Instant memberSince,
@@ -110,7 +88,7 @@ public class DashboardService {
 
     @Transactional(readOnly = true)
     public ProfileDto getProfile(UUID userId) {
-        User user = userRepository.findById(userId).orElseThrow(() -> ApiException.notFound("User"));
+        IdentityQueryService.Profile user = identityQueryService.profile(userId);
         long totalXp = xpEventRepository.totalXp(userId);
         List<Level> levels = levelRepository.findAllByOrderByMinXpAsc();
         Level current = null;
@@ -124,15 +102,14 @@ public class DashboardService {
             }
         }
         Streak streak = streakRepository.findById(userId).orElse(null);
-        return new ProfileDto(user.getId(), user.getName(), user.getEmail(), user.getAvatarUrl(),
-                user.getCreatedAt(),
+        return new ProfileDto(user.id(), user.name(), user.email(), user.avatarUrl(),
+                user.createdAt(),
                 current == null ? 1 : current.getLevel(),
                 current == null ? "" : current.getTitle(),
                 totalXp, xpToNext,
                 streak == null ? 0 : streak.getCurrent(),
                 streak == null ? 0 : streak.getLongest(),
-                userWordRepository.countByUserIdAndLevelGreaterThanEqual(userId, (short) 1),
-                lessonProgressRepository.countByUserIdAndStatus(userId, ProgressStatus.COMPLETED),
+                vocabularyQueryService.learnedWordCount(userId), learningQueryService.completedLessonCount(userId),
                 userAchievementRepository.findByUserId(userId).size());
     }
 

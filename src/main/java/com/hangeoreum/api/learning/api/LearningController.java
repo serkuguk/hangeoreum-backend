@@ -8,6 +8,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.ResponseEntity;
 
 import java.util.UUID;
 
@@ -39,9 +40,14 @@ public class LearningController {
     }
 
     @PostMapping("/lessons/{id}/complete")
-    public LearningService.CompleteResult complete(@PathVariable UUID id,
+    public ResponseEntity<LearningService.CompletionAccepted> complete(@PathVariable UUID id,
                                                    @RequestBody @Valid CompleteRequest request) {
-        return learningService.completeLesson(CurrentUser.id(), id, request.attemptId(), request.score(), request.accuracy());
+        return ResponseEntity.accepted().body(learningService.completeLesson(CurrentUser.id(), id, request.attemptId(), request.score(), request.accuracy()));
+    }
+
+    @GetMapping("/lessons/attempts/{attemptId}")
+    public LearningService.CompletionStatus completionStatus(@PathVariable UUID attemptId) {
+        return learningService.completionStatus(CurrentUser.id(), attemptId);
     }
 
     @GetMapping("/lessons/{id}/story")

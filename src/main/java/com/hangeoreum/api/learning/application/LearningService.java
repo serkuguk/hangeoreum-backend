@@ -9,8 +9,10 @@ import com.hangeoreum.api.learning.domain.*;
 import com.hangeoreum.api.learning.infrastructure.*;
 import com.hangeoreum.api.media.application.MediaService;
 import com.hangeoreum.api.shared.web.ApiException;
-import com.hangeoreum.api.vocabulary.api.WordDto;
-import com.hangeoreum.api.vocabulary.application.VocabularyService;
+import com.hangeoreum.api.shared.events.OutboxService;
+import com.hangeoreum.api.shared.events.contract.LessonCompleted;
+import com.hangeoreum.api.shared.events.contract.LessonWordsAdded;
+import com.hangeoreum.api.shared.events.contract.XpGranted;
 import com.fasterxml.jackson.annotation.JsonRawValue;
 import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -38,8 +40,8 @@ public class LearningService {
     private final UserLetterProgressRepository letterProgressRepository;
     private final AccessService accessService;
     private final GrantXpService grantXpService;
-    private final VocabularyService vocabularyService;
     private final MediaService mediaService;
+    private final OutboxService outboxService;
     private final ObjectMapper objectMapper;
 
     // ---- course map ----
@@ -125,12 +127,14 @@ public class LearningService {
         return new TipDto(tip.getId(), tip.getTitle(), tip.getBodyMd(), tip.getExamples());
     }
 
-    public record CompleteResult(UUID attemptId, Instant savedAt, int xp, List<WordDto> newWords,
+    public record CompleteResult(UUID attemptId, Instant savedAt, int xp, List<LessonWordsAdded.Word> newWords,
                                  int streak, boolean goalReached) {
     }
+    public record CompletionAccepted(UUID attemptId, Instant acceptedAt, String status) {}
+    public record CompletionStatus(String status, CompleteResult result) {}
 
     @Transactional
-    public CompleteResult completeLesson(UUID userId, UUID lessonId, UUID attemptId, short score, short accuracy) {
+    public CompletionAccepted completeLesson(UUID userId, UUID lessonId, UUID attemptId, short score, short accuracy) {
         Lesson lesson = requireLessonAccess(userId, lessonId);
         UUID receiptId = attemptId == null ? UUID.randomUUID() : attemptId;
         if (attemptRepository.claim(receiptId, userId, lessonId, score, accuracy) == 0) {
@@ -139,10 +143,7 @@ public class LearningService {
             if (!receipt.matches(userId, lessonId, score, accuracy)) {
                 throw ApiException.conflict("Completion receipt does not match this request");
             }
-            if (!receipt.isCompleted()) {
-                throw ApiException.conflict("Completion receipt is being processed");
-            }
-            return readResult(receipt);
+            return new CompletionAccepted(receiptId, receipt.getCreatedAt(), receipt.isCompleted() ? "COMPLETED" : "PENDING");
         }
 
         progressRepository.ensureExists(userId, lessonId);
@@ -150,17 +151,34 @@ public class LearningService {
                 .orElseThrow(() -> new IllegalStateException("Lesson progress was not created"));
         boolean repeat = progress.complete(score, accuracy);
 
-        List<WordDto> newWords = vocabularyService.addLessonWords(userId, lessonId);
         int xp = repeat ? lesson.getXpReward() / 2 : lesson.getXpReward();
-        XpSource source = lesson.getType() == LessonType.STORY ? XpSource.STORY : XpSource.LESSON;
-        GrantXpService.GrantResult granted = grantXpService.grant(userId, xp, source, lessonId, receiptId);
         Instant savedAt = Instant.now();
-        CompleteResult result = new CompleteResult(receiptId, savedAt, granted.xp(), newWords,
-                granted.streakCurrent(), granted.goalReached());
-        LessonAttempt receipt = attemptRepository.findById(receiptId)
-                .orElseThrow(() -> new IllegalStateException("Completion receipt was not created"));
-        receipt.complete(writeResult(result), savedAt);
-        return result;
+        outboxService.publish(LessonCompleted.TYPE, new LessonCompleted(receiptId, userId, lessonId, xp,
+                lesson.getType() == LessonType.STORY ? "STORY" : "LESSON"));
+        return new CompletionAccepted(receiptId, savedAt, "PENDING");
+    }
+
+    @Transactional(readOnly = true)
+    public CompletionStatus completionStatus(UUID userId, UUID attemptId) {
+        LessonAttempt receipt = attemptRepository.findById(attemptId)
+                .filter(value -> value.getUserId().equals(userId))
+                .orElseThrow(() -> ApiException.notFound("Completion receipt"));
+        return new CompletionStatus(receipt.isCompleted() ? "COMPLETED" : "PENDING",
+                receipt.isCompleted() ? readResult(receipt) : null);
+    }
+
+    @Transactional
+    public void recordLessonWords(UUID attemptId, List<LessonWordsAdded.Word> words) {
+        LessonAttempt receipt = attemptRepository.findById(attemptId).orElseThrow();
+        receipt.recordWords(writeValue(words));
+        finishReceiptIfReady(receipt);
+    }
+
+    @Transactional
+    public void recordXpGranted(XpGranted event) {
+        LessonAttempt receipt = attemptRepository.findById(event.attemptId()).orElseThrow();
+        receipt.recordXp(event.xp(), event.streak(), event.goalReached());
+        finishReceiptIfReady(receipt);
     }
 
     // ---- story ----
@@ -268,8 +286,12 @@ public class LearningService {
     }
 
     private String writeResult(CompleteResult result) {
+        return writeValue(result);
+    }
+
+    private String writeValue(Object value) {
         try {
-            return objectMapper.writeValueAsString(result);
+            return objectMapper.writeValueAsString(value);
         } catch (Exception exception) {
             throw new IllegalStateException("Cannot store completion receipt", exception);
         }
@@ -280,6 +302,22 @@ public class LearningService {
             return objectMapper.readValue(receipt.getResult(), CompleteResult.class);
         } catch (Exception exception) {
             throw new IllegalStateException("Cannot read completion receipt", exception);
+        }
+    }
+
+    private void finishReceiptIfReady(LessonAttempt receipt) {
+        if (!receipt.isCompleted() && receipt.hasCompletionDetails()) {
+            receipt.complete(writeResult(new CompleteResult(receipt.getId(), Instant.now(), receipt.getXp(),
+                    readWords(receipt.getNewWords()), receipt.getStreak(), receipt.getGoalReached())), Instant.now());
+        }
+    }
+
+    private List<LessonWordsAdded.Word> readWords(String value) {
+        try {
+            return objectMapper.readValue(value, objectMapper.getTypeFactory()
+                    .constructCollectionType(List.class, LessonWordsAdded.Word.class));
+        } catch (Exception exception) {
+            throw new IllegalStateException("Cannot read lesson words", exception);
         }
     }
 }
