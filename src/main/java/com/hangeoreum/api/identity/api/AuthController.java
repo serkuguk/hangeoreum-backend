@@ -32,6 +32,13 @@ public class AuthController {
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {
     }
 
+    public record PasswordResetRequest(@NotBlank @Email String email) {
+    }
+
+    public record PasswordResetConfirmRequest(@NotBlank String token,
+                                              @NotBlank @Size(min = 8, max = 100) String newPassword) {
+    }
+
     public record AuthResponse(String accessToken, UserDto user) {
     }
 
@@ -49,6 +56,20 @@ public class AuthController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshCookie(pair.refreshToken(), authService.refreshTtl()).toString())
                 .body(new AuthResponse(pair.accessToken(), UserDto.from(pair.user())));
+    }
+
+    @PostMapping("/password-reset/request")
+    public ResponseEntity<Void> requestPasswordReset(
+            @RequestBody @jakarta.validation.Valid PasswordResetRequest request) {
+        authService.requestPasswordReset(request.email());
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<Void> confirmPasswordReset(
+            @RequestBody @jakarta.validation.Valid PasswordResetConfirmRequest request) {
+        authService.confirmPasswordReset(request.token(), request.newPassword());
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/refresh")
