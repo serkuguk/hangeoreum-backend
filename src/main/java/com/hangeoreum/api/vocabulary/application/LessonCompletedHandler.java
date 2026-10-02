@@ -6,7 +6,9 @@ import com.hangeoreum.api.shared.events.OutboxService;
 import com.hangeoreum.api.shared.events.ProcessedEventRepository;
 import com.hangeoreum.api.shared.events.contract.LessonCompleted;
 import com.hangeoreum.api.shared.events.contract.LessonWordsAdded;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;

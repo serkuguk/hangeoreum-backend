@@ -5,14 +5,17 @@ import com.hangeoreum.api.billing.domain.Payment;
 import com.hangeoreum.api.billing.infrastructure.PaymentRepository;
 import com.hangeoreum.api.gamification.infrastructure.XpEventRepository;
 import com.hangeoreum.api.identity.api.UserDto;
+import com.hangeoreum.api.identity.application.MeService;
 import com.hangeoreum.api.identity.domain.User;
 import com.hangeoreum.api.identity.domain.UserRole;
+import com.hangeoreum.api.identity.infrastructure.RefreshTokenRepository;
 import com.hangeoreum.api.identity.infrastructure.UserRepository;
 import com.hangeoreum.api.learning.domain.ProgressStatus;
 import com.hangeoreum.api.learning.infrastructure.LessonProgressRepository;
 import com.hangeoreum.api.notification.application.NotificationService;
 import com.hangeoreum.api.notification.domain.NotificationType;
 import com.hangeoreum.api.shared.web.ApiException;
+import com.hangeoreum.api.shared.security.CurrentUser;
 import com.hangeoreum.api.vocabulary.infrastructure.UserWordRepository;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -20,6 +23,7 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
@@ -34,6 +38,8 @@ import java.util.UUID;
 public class AdminUserController {
 
     private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final MeService meService;
     private final LessonProgressRepository lessonProgressRepository;
     private final UserWordRepository userWordRepository;
     private final XpEventRepository xpEventRepository;
@@ -61,14 +67,41 @@ public class AdminUserController {
     @PatchMapping("/users/{id}")
     @Transactional
     public UserDto patchUser(@PathVariable UUID id, @RequestBody PatchUserRequest r) {
+        rejectSelf(id);
+        if (r.role() == UserRole.ADMIN) {
+            throw ApiException.badRequest("ADMIN is reserved for the owner");
+        }
         User user = userRepository.findById(id).orElseThrow(() -> ApiException.notFound("User"));
         if (r.role() != null) {
             user.changeRole(r.role());
         }
         if (r.isActive() != null) {
             user.setActive(r.isActive());
+            if (!r.isActive()) {
+                refreshTokenRepository.revokeAllForUser(id);
+            }
         }
         return UserDto.from(user);
+    }
+
+    @DeleteMapping("/users/{id}")
+    @Transactional
+    public ResponseEntity<Void> deleteUser(@PathVariable UUID id) {
+        rejectSelf(id);
+        if (!userRepository.existsById(id)) {
+            throw ApiException.notFound("User");
+        }
+        if (billingService.hasActivePaidSubscription(id)) {
+            throw ApiException.conflict("Cancel the active paid subscription before deleting this user");
+        }
+        meService.deleteAccount(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    private static void rejectSelf(UUID id) {
+        if (CurrentUser.id().equals(id)) {
+            throw ApiException.forbidden("FORBIDDEN", "Cannot manage your own administrator account");
+        }
     }
 
     public record UserDetail(UserDto user, long lessonsCompleted, long wordsInSrs, long totalXp,

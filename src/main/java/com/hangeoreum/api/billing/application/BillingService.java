@@ -74,6 +74,14 @@ public class BillingService {
                         sub.getStatus(), sub.getCurrentPeriodEnd(), sub.isActive(Instant.now())));
     }
 
+    @Transactional(readOnly = true)
+    public boolean hasActivePaidSubscription(UUID userId) {
+        // ponytail: Local billing status is the guard; reconcile with Stripe before offering automatic cancellation.
+        return subscriptionRepository.findByUserId(userId).stream()
+                .anyMatch(sub -> sub.getProviderSubId() != null
+                        && (sub.getStatus() == SubStatus.ACTIVE || sub.getStatus() == SubStatus.PAST_DUE));
+    }
+
     public String createCheckout(UUID userId, String planCode) {
         requireStripe();
         Plan plan = planRepository.findByCode(planCode)
