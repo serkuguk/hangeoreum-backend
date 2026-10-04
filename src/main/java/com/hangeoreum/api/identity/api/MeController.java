@@ -96,6 +96,7 @@ public class MeController {
     }
 
     @DeleteMapping
+    @io.swagger.v3.oas.annotations.Operation(description = "Deletes the account and learning data; retains detached billing records. Returns 409 until an active recurring subscription is canceled.")
     public ResponseEntity<Void> deleteAccount() {
         meService.deleteAccount(CurrentUser.id());
         return ResponseEntity.noContent().build();

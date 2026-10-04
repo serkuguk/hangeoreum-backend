@@ -51,6 +51,7 @@ public class ReviewSession {
 
     public void registerAnswer(boolean isCorrect) {
         requireOpen();
+        if (total == Short.MAX_VALUE) throw ApiException.conflict("Session answer limit reached");
         total++;
         if (isCorrect) {
             correct++;

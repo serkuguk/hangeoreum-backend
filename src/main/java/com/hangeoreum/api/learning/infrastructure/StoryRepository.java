@@ -9,4 +9,8 @@ import java.util.UUID;
 public interface StoryRepository extends JpaRepository<Story, UUID> {
 
     Optional<Story> findByLessonId(UUID lessonId);
+
+    boolean existsByLessonId(UUID lessonId);
+
+    boolean existsByClipId(UUID clipId);
 }

@@ -29,6 +29,36 @@ public class MediaService {
     private final MediaClipRepository clipRepository;
     private final SubtitleRepository subtitleRepository;
     private final UserClipViewRepository viewRepository;
+    private final com.hangeoreum.api.learning.application.LearningQueryService learningQueryService;
+    private final jakarta.persistence.EntityManager entityManager;
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void lockStoryClip(UUID clipId) {
+        MediaClip clip = lockClip(clipId);
+        if (clip.getKind() != ClipKind.STORY) {
+            throw ApiException.conflict("Story requires a STORY clip");
+        }
+    }
+
+    @Transactional
+    public MediaClip updateClip(UUID id, ClipKind kind, UUID speakerId, UUID wordId, Integer durationMs) {
+        MediaClip clip = lockClip(id);
+        if (kind != ClipKind.STORY && learningQueryService.usesStoryClip(id)) {
+            throw ApiException.conflict("Clip is used by a story");
+        }
+        clip.setKind(kind);
+        clip.setSpeakerId(speakerId);
+        clip.setWordId(wordId);
+        clip.setDurationMs(durationMs);
+        return clip;
+    }
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public MediaClip lockClip(UUID id) {
+        MediaClip clip = entityManager.find(MediaClip.class, id, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        if (clip == null) throw ApiException.notFound("Clip");
+        return clip;
+    }
 
     public record SubtitleDto(String lang, short position, String text, int startMs, int endMs) {
         static SubtitleDto from(Subtitle s) {

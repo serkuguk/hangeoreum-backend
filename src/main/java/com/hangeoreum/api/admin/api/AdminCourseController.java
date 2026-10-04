@@ -6,6 +6,10 @@ import com.hangeoreum.api.shared.web.ApiException;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
+import com.hangeoreum.api.learning.application.LearningService;
+import com.hangeoreum.api.learning.application.LearningService.ReorderItem;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +34,7 @@ public class AdminCourseController {
     private final ExerciseRepository exerciseRepository;
     private final LearningTipRepository tipRepository;
     private final LessonProgressRepository progressRepository;
+    private final LearningService learningService;
 
     // ---- courses ----
 
@@ -111,21 +116,16 @@ public class AdminCourseController {
         return unit;
     }
 
-    public record ReorderItem(UUID id, short position) {
-    }
-
     @PostMapping("/units/reorder")
-    @Transactional
-    public void reorderUnits(@RequestBody List<ReorderItem> items) {
-        for (ReorderItem item : items) {
-            unitRepository.findById(item.id()).ifPresent(u -> u.setPosition(item.position()));
-        }
+    public void reorderUnits(@RequestBody @Valid List<@NotNull @Valid ReorderItem> items) {
+        learningService.reorderUnits(items);
     }
 
     // ---- lessons ----
 
-    public record LessonRequest(UUID unitId, short position, LessonType type, @NotBlank String title,
-                                short xpReward, boolean isFree) {
+    public record LessonRequest(@NotNull UUID unitId, @PositiveOrZero short position,
+                                @NotNull LessonType type, @NotBlank String title,
+                                @PositiveOrZero short xpReward, boolean isFree) {
     }
 
     @GetMapping("/units/{unitId}/lessons")
@@ -141,14 +141,8 @@ public class AdminCourseController {
     }
 
     @PutMapping("/lessons/{id}")
-    @Transactional
     public Lesson updateLesson(@PathVariable UUID id, @RequestBody @Valid LessonRequest r) {
-        Lesson lesson = lessonRepository.findById(id).orElseThrow(() -> ApiException.notFound("Lesson"));
-        lesson.setType(r.type());
-        lesson.setTitle(r.title());
-        lesson.setXpReward(r.xpReward());
-        lesson.setFree(r.isFree());
-        return lesson;
+        return learningService.updateLesson(id, r.type(), r.title(), r.xpReward(), r.isFree());
     }
 
     @DeleteMapping("/lessons/{id}")
@@ -166,7 +160,7 @@ public class AdminCourseController {
     @PatchMapping("/lessons/{id}/publish")
     @Transactional
     public Lesson publishLesson(@PathVariable UUID id, @RequestBody PublishRequest r) {
-        Lesson lesson = lessonRepository.findById(id).orElseThrow(() -> ApiException.notFound("Lesson"));
+        Lesson lesson = learningService.lockLesson(id);
         if (r.isPublished()) {
             if (exerciseRepository.countByLessonId(id) == 0) {
                 throw ApiException.conflict("Lesson needs at least one exercise to be published");
@@ -181,10 +175,7 @@ public class AdminCourseController {
     }
 
     @PostMapping("/lessons/reorder")
-    @Transactional
-    public void reorderLessons(@RequestBody List<ReorderItem> items) {
-        for (ReorderItem item : items) {
-            lessonRepository.findById(item.id()).ifPresent(l -> l.setPosition(item.position()));
-        }
+    public void reorderLessons(@RequestBody @Valid List<@NotNull @Valid ReorderItem> items) {
+        learningService.reorderLessons(items);
     }
 }

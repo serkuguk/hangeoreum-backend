@@ -22,6 +22,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class MeService {
 
+    private final com.hangeoreum.api.billing.application.BillingService billingService;
+
     private final UserRepository userRepository;
     private final UserSettingsRepository settingsRepository;
     private final OauthLinkRepository oauthLinkRepository;
@@ -85,7 +87,11 @@ public class MeService {
 
     @Transactional
     public void deleteAccount(UUID userId) {
-        userRepository.deleteById(userId);
+        User user = userRepository.findByIdForUpdate(userId).orElseThrow(() -> ApiException.notFound("User"));
+        if (billingService.hasActivePaidSubscription(userId)) {
+            throw ApiException.conflict("Cancel the active paid subscription before deleting this user");
+        }
+        userRepository.delete(user);
     }
 
     @Transactional

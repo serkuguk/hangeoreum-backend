@@ -16,6 +16,12 @@ public class IdentityQueryService {
     private final UserSettingsRepository settingsRepository;
     private final UserRepository userRepository;
 
+    /** Shared lock order for billing and deletion: account, then subscription. */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public boolean lockAccount(UUID userId) {
+        return userRepository.findByIdForUpdate(userId).isPresent();
+    }
+
     @Transactional(readOnly = true)
     public short dailyGoalXp(UUID userId) {
         return settingsRepository.findById(userId).map(value -> value.getDailyGoalXp()).orElse((short) 20);

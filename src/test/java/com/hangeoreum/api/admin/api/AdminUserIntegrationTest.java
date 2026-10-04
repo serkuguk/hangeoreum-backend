@@ -131,10 +131,16 @@ class AdminUserIntegrationTest {
         mvc.perform(delete(url).header("Authorization", bearer(adminToken)))
                 .andExpect(status().isConflict());
         jdbc.update("update subscriptions set status = 'CANCELED' where id = ?", subscriptionId);
-        jdbc.update("insert into payments (user_id, amount_cents) values (?, 100)", target.getId());
+        UUID paymentId = UUID.randomUUID();
+        jdbc.update("insert into payments (id, user_id, subscription_id, provider, amount_cents) values (?, ?, ?, 'STRIPE', 100)",
+                paymentId, target.getId(), subscriptionId);
         mvc.perform(delete(url).header("Authorization", bearer(adminToken)))
                 .andExpect(status().isNoContent());
         assertFalse(users.existsById(target.getId()));
+        assertEquals(1, jdbc.queryForObject("select count(*) from payments where id = ? and user_id is null and subscription_id = ?",
+                Integer.class, paymentId, subscriptionId));
+        assertEquals(1, jdbc.queryForObject("select count(*) from subscriptions where id = ? and user_id is null",
+                Integer.class, subscriptionId));
         assertEquals(0, jdbc.queryForObject("select count(*) from payments where user_id = ?", Integer.class, target.getId()));
         mvc.perform(delete(url).header("Authorization", bearer(adminToken)))
                 .andExpect(status().isNotFound());

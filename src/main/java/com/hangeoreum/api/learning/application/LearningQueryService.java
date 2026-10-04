@@ -16,6 +16,12 @@ public class LearningQueryService {
     private final LessonProgressRepository lessonProgressRepository;
     private final AlphabetLetterRepository alphabetLetterRepository;
     private final UserLetterProgressRepository userLetterProgressRepository;
+    private final com.hangeoreum.api.learning.infrastructure.StoryRepository storyRepository;
+
+    @Transactional(readOnly = true)
+    public boolean usesStoryClip(UUID clipId) {
+        return storyRepository.existsByClipId(clipId);
+    }
 
     @Transactional(readOnly = true)
     public AchievementProgress achievementProgress(UUID userId) {

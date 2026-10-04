@@ -10,5 +10,6 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     List<Payment> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
-    boolean existsByProviderPaymentId(String providerPaymentId);
+    boolean existsByProviderAndProviderPaymentId(com.hangeoreum.api.billing.domain.PayProvider provider,
+                                               String providerPaymentId);
 }

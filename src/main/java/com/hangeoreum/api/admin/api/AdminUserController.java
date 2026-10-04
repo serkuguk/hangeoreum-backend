@@ -88,12 +88,6 @@ public class AdminUserController {
     @Transactional
     public ResponseEntity<Void> deleteUser(@PathVariable UUID id) {
         rejectSelf(id);
-        if (!userRepository.existsById(id)) {
-            throw ApiException.notFound("User");
-        }
-        if (billingService.hasActivePaidSubscription(id)) {
-            throw ApiException.conflict("Cancel the active paid subscription before deleting this user");
-        }
         meService.deleteAccount(id);
         return ResponseEntity.noContent().build();
     }

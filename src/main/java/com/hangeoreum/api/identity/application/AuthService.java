@@ -58,10 +58,10 @@ public class AuthService {
 
     @Transactional
     public TokenPair register(String name, String email, String password) {
-        if (userRepository.existsByEmail(email.toLowerCase())) {
+        if (userRepository.existsByEmail(email.toLowerCase(java.util.Locale.ROOT))) {
             throw new ApiException(HttpStatus.CONFLICT, "EMAIL_TAKEN", "Email is already registered");
         }
-        User user = userRepository.save(User.register(name, email, passwordEncoder.encode(password)));
+        User user = userRepository.saveAndFlush(User.register(name, email, passwordEncoder.encode(password)));
         settingsRepository.save(UserSettings.defaults(user.getId()));
         events.publishEvent(new UserRegisteredEvent(user.getId(), user.getName()));
         return issueTokens(user);
@@ -69,7 +69,7 @@ public class AuthService {
 
     @Transactional
     public TokenPair login(String email, String password) {
-        User user = userRepository.findByEmail(email.toLowerCase())
+        User user = userRepository.findByEmail(email.toLowerCase(java.util.Locale.ROOT))
                 .filter(u -> u.isActive() && u.hasPassword() && passwordEncoder.matches(password, u.getPasswordHash()))
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS",
                         "Invalid email or password"));
@@ -78,7 +78,7 @@ public class AuthService {
 
     @Transactional
     public void requestPasswordReset(String email) {
-        userRepository.findPasswordResetAccountForUpdate(email.toLowerCase()).ifPresent(user -> {
+        userRepository.findPasswordResetAccountForUpdate(email.toLowerCase(java.util.Locale.ROOT)).ifPresent(user -> {
             Instant now = Instant.now();
             boolean coolingDown = passwordResetTokenRepository.findFirstByUserIdOrderByCreatedAtDesc(user.getId())
                     .filter(token -> token.getCreatedAt().isAfter(now.minus(RESET_COOLDOWN)))

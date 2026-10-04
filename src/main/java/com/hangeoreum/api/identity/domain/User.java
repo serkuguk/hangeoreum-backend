@@ -50,7 +50,7 @@ public class User {
     public static User register(String name, String email, String passwordHash) {
         User user = new User();
         user.name = name;
-        user.email = email.toLowerCase();
+        user.email = email.toLowerCase(java.util.Locale.ROOT);
         user.passwordHash = passwordHash;
         return user;
     }

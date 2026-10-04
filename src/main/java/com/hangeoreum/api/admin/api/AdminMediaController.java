@@ -1,10 +1,9 @@
 package com.hangeoreum.api.admin.api;
 
-import tools.jackson.databind.JsonNode;
 import com.hangeoreum.api.learning.domain.Story;
-import com.hangeoreum.api.learning.domain.StoryLine;
-import com.hangeoreum.api.learning.infrastructure.StoryLineRepository;
-import com.hangeoreum.api.learning.infrastructure.StoryRepository;
+import com.hangeoreum.api.learning.application.LearningService;
+import com.hangeoreum.api.learning.application.LearningService.StoryRequest;
+import com.hangeoreum.api.media.application.MediaService;
 import com.hangeoreum.api.media.domain.*;
 import com.hangeoreum.api.media.infrastructure.MediaClipRepository;
 import com.hangeoreum.api.media.infrastructure.NativeSpeakerRepository;
@@ -33,8 +32,8 @@ public class AdminMediaController {
     private final NativeSpeakerRepository speakerRepository;
     private final MediaClipRepository clipRepository;
     private final SubtitleRepository subtitleRepository;
-    private final StoryRepository storyRepository;
-    private final StoryLineRepository storyLineRepository;
+    private final LearningService learningService;
+    private final MediaService mediaService;
     private final MediaStorage mediaStorage;
 
     // ---- speakers ----
@@ -72,7 +71,8 @@ public class AdminMediaController {
 
     // ---- clips ----
 
-    public record ClipRequest(@NotNull ClipKind kind, UUID speakerId, UUID wordId, Integer durationMs) {
+    public record ClipRequest(@NotNull ClipKind kind, UUID speakerId, UUID wordId,
+                              @jakarta.validation.constraints.PositiveOrZero Integer durationMs) {
     }
 
     @GetMapping("/clips")
@@ -89,14 +89,8 @@ public class AdminMediaController {
     }
 
     @PutMapping("/clips/{id}")
-    @Transactional
     public MediaClip updateClip(@PathVariable UUID id, @RequestBody @Valid ClipRequest r) {
-        MediaClip clip = requireClip(id);
-        clip.setKind(r.kind());
-        clip.setSpeakerId(r.speakerId());
-        clip.setWordId(r.wordId());
-        clip.setDurationMs(r.durationMs());
-        return clip;
+        return mediaService.updateClip(id, r.kind(), r.speakerId(), r.wordId(), r.durationMs());
     }
 
     @DeleteMapping("/clips/{id}")
@@ -108,9 +102,9 @@ public class AdminMediaController {
     @PostMapping("/clips/{id}/media")
     @Transactional
     public MediaClip uploadClipMedia(@PathVariable UUID id,
-                                     @RequestParam("file") MultipartFile file,
-                                     @RequestParam(defaultValue = "video") String type) {
-        MediaClip clip = requireClip(id);
+                                      @RequestParam("file") MultipartFile file,
+                                      @RequestParam(defaultValue = "video") String type) {
+        MediaClip clip = mediaService.lockClip(id);
         String url = mediaStorage.store(file, "clips");
         switch (type) {
             case "audio" -> clip.setAudioUrl(url);
@@ -126,7 +120,7 @@ public class AdminMediaController {
     @PatchMapping("/clips/{id}/publish")
     @Transactional
     public MediaClip publishClip(@PathVariable UUID id, @RequestBody PublishRequest r) {
-        MediaClip clip = requireClip(id);
+        MediaClip clip = mediaService.lockClip(id);
         if (r.isPublished()) {
             clip.publish(subtitleRepository.countByClipId(id));
         } else {
@@ -138,7 +132,8 @@ public class AdminMediaController {
     // ---- subtitles ----
 
     public record SubtitleRequest(@NotBlank String lang, short position, @NotBlank String text,
-                                  int startMs, int endMs) {
+                                  @jakarta.validation.constraints.PositiveOrZero int startMs,
+                                  @jakarta.validation.constraints.Positive int endMs) {
     }
 
     @GetMapping("/clips/{id}/subtitles")
@@ -161,31 +156,9 @@ public class AdminMediaController {
 
     // ---- story ----
 
-    public record StoryLineRequest(short position, String speaker, @NotBlank String textKo,
-                                   @NotBlank String textTranslation, JsonNode breakdown,
-                                   Integer startMs, Integer endMs) {
-    }
-
-    public record StoryRequest(@NotBlank String title, UUID clipId, List<@Valid StoryLineRequest> lines) {
-    }
-
     @PutMapping("/lessons/{lessonId}/story")
-    @Transactional
     public Story putStory(@PathVariable UUID lessonId, @RequestBody @Valid StoryRequest r) {
-        Story story = storyRepository.findByLessonId(lessonId)
-                .map(existing -> {
-                    existing.setTitle(r.title());
-                    existing.setClipId(r.clipId());
-                    return existing;
-                })
-                .orElseGet(() -> storyRepository.save(Story.create(lessonId, r.title(), r.clipId())));
-        storyLineRepository.deleteByStoryId(story.getId());
-        if (r.lines() != null) {
-            r.lines().forEach(l -> storyLineRepository.save(StoryLine.create(story.getId(), l.position(),
-                    l.speaker(), l.textKo(), l.textTranslation(),
-                    l.breakdown() == null ? null : l.breakdown().toString(), l.startMs(), l.endMs())));
-        }
-        return story;
+        return learningService.putStory(lessonId, r);
     }
 
     private MediaClip requireClip(UUID id) {
