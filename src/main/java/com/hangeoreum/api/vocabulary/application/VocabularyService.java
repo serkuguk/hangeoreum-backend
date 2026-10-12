@@ -83,8 +83,12 @@ public class VocabularyService {
 
     @Transactional(readOnly = true)
     public List<DeckDto> getDecks(UUID userId) {
-        return deckRepository.findByUserIdOrderByCreatedAtAsc(userId).stream()
-                .map(d -> new DeckDto(d.getId(), d.getTitle(), deckWordRepository.countByDeckId(d.getId())))
+        List<Deck> decks = deckRepository.findByUserIdOrderByCreatedAtAsc(userId);
+        var counts = deckWordRepository.countByDeckIds(decks.stream().map(Deck::getId).toList()).stream()
+                .collect(java.util.stream.Collectors.toMap(DeckWordRepository.DeckCount::getDeckId,
+                        DeckWordRepository.DeckCount::getWordCount));
+        return decks.stream()
+                .map(d -> new DeckDto(d.getId(), d.getTitle(), counts.getOrDefault(d.getId(), 0L)))
                 .toList();
     }
 

@@ -3,8 +3,7 @@ package com.hangeoreum.api.billing.application;
 import com.hangeoreum.api.billing.domain.AccessPolicy;
 import com.hangeoreum.api.billing.domain.Feature;
 import com.hangeoreum.api.billing.infrastructure.SubscriptionRepository;
-import com.hangeoreum.api.identity.domain.UserRole;
-import com.hangeoreum.api.identity.infrastructure.UserRepository;
+import com.hangeoreum.api.identity.application.IdentityQueryService;
 import com.hangeoreum.api.shared.web.ApiException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -18,19 +17,17 @@ import java.util.UUID;
 public class AccessService {
 
     private final SubscriptionRepository subscriptionRepository;
-    private final UserRepository userRepository;
+    private final IdentityQueryService identity;
 
     @Transactional(readOnly = true)
     public boolean isAdmin(UUID userId) {
-        return userRepository.findById(userId).map(user -> user.getRole() == UserRole.ADMIN).orElse(false);
+        return identity.isAdmin(userId);
     }
 
     @Transactional(readOnly = true)
     public boolean isPro(UUID userId) {
         if (isAdmin(userId)) return true;
-        return subscriptionRepository.findFirstByUserIdOrderByCreatedAtDesc(userId)
-                .map(sub -> sub.isActive(Instant.now()))
-                .orElse(false);
+        return subscriptionRepository.hasActiveSubscription(userId, Instant.now());
     }
 
     public void requirePro(UUID userId, Feature feature) {

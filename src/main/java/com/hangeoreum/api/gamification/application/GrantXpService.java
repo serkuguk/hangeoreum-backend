@@ -1,6 +1,8 @@
 package com.hangeoreum.api.gamification.application;
 
 import com.hangeoreum.api.gamification.domain.DailyActivity;
+import com.hangeoreum.api.billing.domain.AccessPolicy;
+import com.hangeoreum.api.shared.web.ApiException;
 import com.hangeoreum.api.gamification.domain.Streak;
 import com.hangeoreum.api.gamification.domain.XpEvent;
 import com.hangeoreum.api.gamification.domain.XpSource;
@@ -80,11 +82,29 @@ public class GrantXpService {
         return new GrantResult(totalXp, goalReached, streak.getCurrent());
     }
 
-    @Transactional(readOnly = true)
-    public long lessonsCompletedToday(UUID userId) {
-        return dailyActivityRepository.findByUserIdAndActivityDate(userId, LocalDate.now())
-                .map(DailyActivity::getLessonsCompleted)
-                .orElse((short) 0);
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void reserveLesson(UUID userId, boolean unlimited) {
+        DailyActivity activity = lockToday(userId);
+        if (!unlimited && !AccessPolicy.withinFreeLessonLimit(activity.getLessonReservations())) {
+            throw ApiException.forbidden("LIMIT_REACHED", "Daily free lesson limit reached");
+        }
+        activity.reserveLesson();
+    }
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void reserveGame(UUID userId, boolean unlimited) {
+        DailyActivity activity = lockToday(userId);
+        if (!unlimited && !AccessPolicy.withinFreeGameLimit(activity.getGameSessionsStarted())) {
+            throw ApiException.forbidden("LIMIT_REACHED", "Daily free game limit reached");
+        }
+        activity.reserveGame();
+    }
+
+    private DailyActivity lockToday(UUID userId) {
+        LocalDate today = LocalDate.now();
+        dailyActivityRepository.ensureToday(userId, today, goalXpOf(userId));
+        return dailyActivityRepository.findByUserIdAndActivityDateForUpdate(userId, today)
+                .orElseThrow(() -> new IllegalStateException("Daily activity was not created"));
     }
 
     private short goalXpOf(UUID userId) {

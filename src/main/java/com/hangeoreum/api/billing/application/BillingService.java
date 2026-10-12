@@ -23,6 +23,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class BillingService {
 
+    private final com.hangeoreum.api.billing.infrastructure.PaymentRepository paymentRepository;
     private final PlanRepository planRepository;
     private final SubscriptionRepository subscriptionRepository;
 
@@ -142,4 +143,15 @@ public class BillingService {
             throw new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "STRIPE_ERROR", e.getMessage());
         }
     }
+
+    @Transactional(readOnly = true)
+    public List<Payment> payments(UUID userId) {
+        return paymentRepository.findByUserIdOrderByCreatedAtDesc(userId);
+    }
+
+    @Transactional(readOnly = true)
+    public long activeSubscriptionCount() {
+        return subscriptionRepository.countByStatus(SubStatus.ACTIVE);
+    }
+
 }

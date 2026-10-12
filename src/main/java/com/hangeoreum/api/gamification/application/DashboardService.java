@@ -66,7 +66,7 @@ public class DashboardService {
         List<NextLessonDto> nextLessons = new ArrayList<>();
         for (LearningService.UnitNode unit : learningService.getCourseMap(userId).units()) {
             for (LearningService.LessonNode lesson : unit.lessons()) {
-                if ("AVAILABLE".equals(lesson.status()) && nextLessons.size() < 3) {
+                if (lesson.status() == com.hangeoreum.api.learning.domain.LessonAvailability.Status.AVAILABLE && nextLessons.size() < 3) {
                     nextLessons.add(new NextLessonDto(lesson.id(), lesson.title(), lesson.type().name()));
                 }
             }

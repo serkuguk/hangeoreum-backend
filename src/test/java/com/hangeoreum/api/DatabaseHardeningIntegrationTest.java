@@ -59,6 +59,7 @@ class DatabaseHardeningIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired UserRepository users;
     @Autowired AuthService auth;
+    @Autowired com.hangeoreum.api.shared.events.OutboxDispatcher outbox;
     @MockitoBean PasswordResetMailSender mailSender;
 
     @Test
@@ -79,6 +80,7 @@ class DatabaseHardeningIntegrationTest {
         assertEquals(1, count("select count(*) from subscriptions where provider_sub_id = ?", sub));
         String failed = event("invoice.payment_failed", invoice);
         assertEquals(List.of(200, 200), concurrent(() -> webhook(failed), () -> webhook(failed)));
+        outbox.dispatch();
         assertEquals(1, count("select count(*) from notifications where user_id = ?", user));
     }
 
@@ -296,7 +298,7 @@ class DatabaseHardeningIntegrationTest {
             statement.executeUpdate("insert into users(id,name,email) values ('00000000-0000-0000-0000-000000000001','Upgrade','Upgrade@example.com')");
             statement.executeUpdate("insert into payments(user_id,amount_cents) values ('00000000-0000-0000-0000-000000000001',100)");
         }
-        assertEquals(5, Flyway.configure().dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword()).load().migrate().migrationsExecuted);
+        assertEquals(6, Flyway.configure().dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword()).load().migrate().migrationsExecuted);
         try (var connection = java.sql.DriverManager.getConnection(url, POSTGRES.getUsername(), POSTGRES.getPassword());
              var statement = connection.createStatement();
              var rows = statement.executeQuery("select count(*) from payments where provider='STRIPE' and amount_cents=100")) {

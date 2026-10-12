@@ -49,7 +49,7 @@ class AuthServicePasswordResetTest {
 
     @Test
     void requestIsNeutralForUnknownEmail() {
-        when(userRepository.findPasswordResetAccountForUpdate("missing@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findPasswordResetAccountForUpdate("Missing@Example.com")).thenReturn(Optional.empty());
 
         assertDoesNotThrow(() -> authService.requestPasswordReset("Missing@Example.com"));
 
@@ -60,7 +60,7 @@ class AuthServicePasswordResetTest {
     void requestStoresOnlyHashAndSendsRawToken() {
         UUID userId = UUID.randomUUID();
         User user = passwordUser(userId, "user@example.com");
-        when(userRepository.findPasswordResetAccountForUpdate("user@example.com")).thenReturn(Optional.of(user));
+        when(userRepository.findPasswordResetAccountForUpdate("USER@example.com")).thenReturn(Optional.of(user));
         when(resetTokenRepository.findFirstByUserIdOrderByCreatedAtDesc(userId)).thenReturn(Optional.empty());
         ArgumentCaptor<PasswordResetToken> stored = ArgumentCaptor.forClass(PasswordResetToken.class);
         ArgumentCaptor<String> raw = ArgumentCaptor.forClass(String.class);

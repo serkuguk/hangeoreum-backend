@@ -1,7 +1,6 @@
 package com.hangeoreum.api.vocabulary.application;
 
 import com.hangeoreum.api.billing.application.AccessService;
-import com.hangeoreum.api.billing.domain.AccessPolicy;
 import com.hangeoreum.api.gamification.application.GrantXpService;
 import com.hangeoreum.api.gamification.domain.XpSource;
 import com.hangeoreum.api.shared.web.ApiException;
@@ -14,7 +13,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
@@ -30,6 +28,7 @@ public class ReviewService {
     private final UserWordRepository userWordRepository;
     private final ReviewSessionRepository sessionRepository;
     private final ReviewAnswerRepository answerRepository;
+    private final ReviewSessionCardRepository cardRepository;
     private final DeckWordRepository deckWordRepository;
     private final AccessService accessService;
     private final GrantXpService grantXpService;
@@ -50,13 +49,6 @@ public class ReviewService {
 
     @Transactional
     public SessionDto startSession(UUID userId, ReviewMode mode, Integer limit, UUID deckId, boolean difficultOnly) {
-        if (GAME_MODES.contains(mode) && !accessService.isPro(userId)) {
-            long gamesToday = sessionRepository.countByUserIdAndStartedAtAfterAndModeIn(
-                    userId, LocalDate.now().atStartOfDay().toInstant(ZoneOffset.UTC), GAME_MODES);
-            if (!AccessPolicy.withinFreeGameLimit(gamesToday)) {
-                throw ApiException.forbidden("LIMIT_REACHED", "Daily free game limit reached");
-            }
-        }
         int size = limit != null ? limit : (mode == ReviewMode.QUICK ? 15 : 20);
         List<UserWord> queue;
         if (deckId != null) {
@@ -74,30 +66,40 @@ public class ReviewService {
         if (queue.isEmpty()) {
             throw ApiException.conflict("No words to review");
         }
+        if (GAME_MODES.contains(mode)) {
+            grantXpService.reserveGame(userId, accessService.isPro(userId));
+        }
         ReviewSession session = sessionRepository.save(ReviewSession.start(userId, mode));
+        for (int i = 0; i < queue.size(); i++) {
+            cardRepository.save(ReviewSessionCard.issued(session.getId(), queue.get(i).getWord().getId(), i));
+        }
         return new SessionDto(session.getId(), mode, queue.stream().map(UserWordDto::from).toList());
     }
 
-    public record AnswerCommand(UUID wordId, int quality) {
+    public record AnswerCommand(@jakarta.validation.constraints.NotNull UUID wordId,
+                                @jakarta.validation.constraints.Min(0) @jakarta.validation.constraints.Max(5) int quality) {
     }
 
     @Transactional
     public void submitAnswers(UUID userId, UUID sessionId, List<AnswerCommand> answers) {
         ReviewSession session = ownSession(userId, sessionId);
+        session.requireOpen();
+        if (answers == null) throw ApiException.badRequest("answers must not be null");
         HashSet<UUID> requestedWords = new HashSet<>();
         for (AnswerCommand answer : answers) {
+            if (answer == null || answer.wordId() == null) throw ApiException.badRequest("wordId must not be null");
             if (answer.quality() < 0 || answer.quality() > 5) {
                 throw ApiException.badRequest("quality must be 0..5");
             }
             if (!requestedWords.add(answer.wordId())) {
                 throw ApiException.conflict("Duplicate word in review answer batch");
             }
+            if (!cardRepository.existsById(new ReviewSessionCard.Pk(sessionId, answer.wordId()))) {
+                throw ApiException.conflict("Word was not issued in this review session");
+            }
             ReviewAnswer existing = answerRepository.findBySessionIdAndWordId(sessionId, answer.wordId()).orElse(null);
             if (existing != null) {
-                if (existing.getQuality() != answer.quality()) {
-                    throw ApiException.conflict("Review answer does not match the saved answer");
-                }
-                continue;
+                throw ApiException.conflict("Word was already answered in this review session");
             }
             UserWord userWord = userWordRepository.findByUserIdAndWordIdForUpdate(userId, answer.wordId())
                     .orElseThrow(() -> ApiException.notFound("Word " + answer.wordId()));
@@ -116,6 +118,10 @@ public class ReviewService {
         if (session.isFinished()) {
             return new FinishResult(session.getTotal(), session.getCorrect(), session.getXpEarned(),
                     session.getStreakAfter() == null ? 0 : session.getStreakAfter());
+        }
+        long issued = cardRepository.countBySessionId(sessionId);
+        if (issued == 0 || session.getTotal() != issued) {
+            throw ApiException.conflict("Answer every issued card before finishing the session");
         }
         int xp = session.finish();
         int streak = 0;

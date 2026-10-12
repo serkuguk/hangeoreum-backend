@@ -42,4 +42,10 @@ public class VocabularyQueryService {
     public record WordSummary(UUID id, String hangul, String romanization, String translation,
                               String partOfSpeech, UUID topicId, String exampleKo, String exampleTranslation,
                               String grammarNote, String audioUrl, String imageUrl) {}
+
+    @Transactional(readOnly = true)
+    public long wordCount(UUID userId) {
+        return userWordRepository.countByUserId(userId);
+    }
+
 }

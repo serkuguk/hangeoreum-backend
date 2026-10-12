@@ -1,7 +1,6 @@
 package com.hangeoreum.api.learning.application;
 
 import com.hangeoreum.api.billing.application.AccessService;
-import com.hangeoreum.api.billing.domain.AccessPolicy;
 import com.hangeoreum.api.billing.domain.Feature;
 import com.hangeoreum.api.gamification.application.GrantXpService;
 import com.hangeoreum.api.gamification.domain.XpSource;
@@ -146,7 +145,7 @@ public class LearningService {
     // ---- course map ----
 
     public record LessonNode(UUID id, String title, LessonType type, short position, short xpReward,
-                             boolean isFree, boolean hasAccess, String status, Short score) {
+                             boolean isFree, boolean hasAccess, LessonAvailability.Status status, Short score) {
     }
 
     public record UnitNode(UUID id, String title, String description, String color, short position,
@@ -189,7 +188,7 @@ public class LearningService {
                                 .map(lesson -> new LessonNode(lesson.getId(), lesson.getTitle(), lesson.getType(),
                                         lesson.getPosition(), lesson.getXpReward(), lesson.isFree(),
                                         lesson.isFree() || isPro,
-                                        (isAdmin ? LessonAvailability.Status.AVAILABLE : statuses.get(lesson.getId())).name(),
+                                        isAdmin ? LessonAvailability.Status.AVAILABLE : statuses.get(lesson.getId()),
                                         Optional.ofNullable(progressByLesson.get(lesson.getId()))
                                                 .map(LessonProgress::getScore).orElse(null)))
                                 .toList()))
@@ -245,6 +244,8 @@ public class LearningService {
             return new CompletionAccepted(receiptId, receipt.getCreatedAt(), receipt.isCompleted() ? "COMPLETED" : "PENDING");
         }
 
+        grantXpService.reserveLesson(userId, accessService.isPro(userId) || accessService.isAdmin(userId));
+
         progressRepository.ensureExists(userId, lessonId);
         LessonProgress progress = progressRepository.findByUserIdAndLessonIdForUpdate(userId, lessonId)
                 .orElseThrow(() -> new IllegalStateException("Lesson progress was not created"));
@@ -253,7 +254,7 @@ public class LearningService {
         int xp = repeat ? lesson.getXpReward() / 2 : lesson.getXpReward();
         Instant savedAt = Instant.now();
         outboxService.publish(LessonCompleted.TYPE, new LessonCompleted(receiptId, userId, lessonId, xp,
-                lesson.getType() == LessonType.STORY ? "STORY" : "LESSON"));
+                lesson.getType() == LessonType.STORY ? LessonCompleted.XpSource.STORY : LessonCompleted.XpSource.LESSON));
         return new CompletionAccepted(receiptId, savedAt, "PENDING");
     }
 
@@ -268,14 +269,14 @@ public class LearningService {
 
     @Transactional
     public void recordLessonWords(UUID attemptId, List<LessonWordsAdded.Word> words) {
-        LessonAttempt receipt = attemptRepository.findById(attemptId).orElseThrow();
+        LessonAttempt receipt = attemptRepository.findByIdForUpdate(attemptId).orElseThrow();
         receipt.recordWords(writeValue(words));
         finishReceiptIfReady(receipt);
     }
 
     @Transactional
     public void recordXpGranted(XpGranted event) {
-        LessonAttempt receipt = attemptRepository.findById(event.attemptId()).orElseThrow();
+        LessonAttempt receipt = attemptRepository.findByIdForUpdate(event.attemptId()).orElseThrow();
         receipt.recordXp(event.xp(), event.streak(), event.goalReached());
         finishReceiptIfReady(receipt);
     }
@@ -363,16 +364,11 @@ public class LearningService {
         LessonNode node = map.units().stream().flatMap(unit -> unit.lessons().stream())
                 .filter(candidate -> candidate.id().equals(lessonId)).findFirst()
                 .orElseThrow(() -> ApiException.notFound("Lesson"));
-        if (!accessService.isAdmin(userId) && "LOCKED".equals(node.status())) {
+        if (!accessService.isAdmin(userId) && node.status() == LessonAvailability.Status.LOCKED) {
             throw ApiException.forbidden("LESSON_LOCKED", "Complete the previous lesson first");
         }
         if (!node.hasAccess()) {
             accessService.requirePro(userId, Feature.LESSON_PRO);
-        }
-        boolean alreadyCompleted = "COMPLETED".equals(node.status());
-        if (!accessService.isPro(userId) && !alreadyCompleted
-                && !AccessPolicy.withinFreeLessonLimit(grantXpService.lessonsCompletedToday(userId))) {
-            throw ApiException.forbidden("LIMIT_REACHED", "Daily free lesson limit reached");
         }
         return lesson;
     }

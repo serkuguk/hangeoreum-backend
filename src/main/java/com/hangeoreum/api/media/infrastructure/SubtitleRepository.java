@@ -10,6 +10,8 @@ public interface SubtitleRepository extends JpaRepository<Subtitle, UUID> {
 
     List<Subtitle> findByClipIdOrderByLangAscPositionAsc(UUID clipId);
 
+    List<Subtitle> findByClipIdInOrderByLangAscPositionAsc(List<UUID> clipIds);
+
     long countByClipId(UUID clipId);
 
     void deleteByClipId(UUID clipId);

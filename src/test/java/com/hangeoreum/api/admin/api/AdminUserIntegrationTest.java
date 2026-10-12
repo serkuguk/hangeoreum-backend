@@ -30,6 +30,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -65,6 +66,9 @@ class AdminUserIntegrationTest {
         String adminToken = auth.issueTokens(admin).accessToken();
         AuthService.TokenPair targetTokens = auth.issueTokens(target);
         String url = "/api/v1/admin/users/" + target.getId();
+
+        mvc.perform(get("/api/v1/admin/metrics").header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalUsers").isNumber());
 
         assertThrows(org.springframework.dao.DataIntegrityViolationException.class,
                 () -> jdbc.update("insert into users (name, email, role) values ('Second Admin', 'second-admin@example.com', 'ADMIN')"));
@@ -144,6 +148,34 @@ class AdminUserIntegrationTest {
         assertEquals(0, jdbc.queryForObject("select count(*) from payments where user_id = ?", Integer.class, target.getId()));
         mvc.perform(delete(url).header("Authorization", bearer(adminToken)))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void movedAdminControllersPreserveEditorRoutesAndMissingLessonResponse() throws Exception {
+        User editor = User.register("Editor", "boundary-" + UUID.randomUUID() + "@example.com", "hash");
+        editor.changeRole(UserRole.EDITOR);
+        editor = users.saveAndFlush(editor);
+        String token = auth.issueTokens(editor).accessToken();
+        for (String path : java.util.List.of("courses", "words", "speakers")) {
+            mvc.perform(get("/api/v1/admin/" + path)).andExpect(status().isUnauthorized());
+            mvc.perform(get("/api/v1/admin/" + path).header("Authorization", bearer(token)))
+                    .andExpect(status().isOk());
+        }
+        String missingLetter = "/api/v1/admin/alphabet/" + UUID.randomUUID();
+        mvc.perform(put(missingLetter).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(put(missingLetter).header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/admin/lessons/" + UUID.randomUUID() + "/full")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        mvc.perform(get("/api/v1/admin/words?page=-1").header("Authorization", bearer(token)))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/admin/words?size=0").header("Authorization", bearer(token)))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/admin/words?size=101").header("Authorization", bearer(token)))
+                .andExpect(status().isBadRequest());
     }
 
     private static String bearer(String token) {

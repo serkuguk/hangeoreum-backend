@@ -24,7 +24,7 @@ public class IdentityQueryService {
 
     @Transactional(readOnly = true)
     public short dailyGoalXp(UUID userId) {
-        return settingsRepository.findById(userId).map(value -> value.getDailyGoalXp()).orElse((short) 20);
+        return settingsRepository.findById(userId).map(value -> value.getDailyGoalXp()).orElse(com.hangeoreum.api.identity.domain.UserSettings.DEFAULT_DAILY_GOAL_XP);
     }
 
     @Transactional(readOnly = true)
@@ -41,4 +41,22 @@ public class IdentityQueryService {
 
     public record ReminderSettings(UUID userId, LocalTime reminderTime) {}
     public record Profile(UUID id, String name, String email, String avatarUrl, java.time.Instant createdAt, short dailyGoalXp) {}
+
+    @Transactional(readOnly = true)
+    public java.util.Optional<com.hangeoreum.api.identity.domain.UserRole> activeRole(UUID userId) {
+        return userRepository.findById(userId).filter(com.hangeoreum.api.identity.domain.User::isActive)
+                .map(com.hangeoreum.api.identity.domain.User::getRole);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isAdmin(UUID userId) {
+        return userRepository.findById(userId)
+                .map(user -> user.getRole() == com.hangeoreum.api.identity.domain.UserRole.ADMIN).orElse(false);
+    }
+
+    @Transactional(readOnly = true)
+    public long userCount() {
+        return userRepository.count();
+    }
+
 }

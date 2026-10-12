@@ -6,7 +6,9 @@ import com.hangeoreum.api.notification.domain.NotificationType;
 import com.hangeoreum.api.shared.security.CurrentUser;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
+import com.hangeoreum.api.shared.web.PageResponse;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -29,16 +31,10 @@ public class NotificationController {
                     n.isRead(), n.getCreatedAt());
         }
     }
-
-    public record PageResponse<T>(List<T> content, long totalElements, int page) {
-    }
-
     @GetMapping
-    public PageResponse<NotificationDto> list(@RequestParam(defaultValue = "0") int page,
-                                              @RequestParam(defaultValue = "20") int size) {
-        Page<Notification> result = notificationService.list(CurrentUser.id(), page, Math.min(size, 100));
-        return new PageResponse<>(result.getContent().stream().map(NotificationDto::from).toList(),
-                result.getTotalElements(), result.getNumber());
+    public PageResponse<NotificationDto> list(@RequestParam(defaultValue = "0") @Min(0) int page,
+                                              @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        return PageResponse.from(notificationService.list(CurrentUser.id(), page, size).map(NotificationDto::from));
     }
 
     @GetMapping("/unread-count")

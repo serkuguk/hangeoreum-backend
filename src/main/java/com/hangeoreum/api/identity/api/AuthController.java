@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -23,6 +24,9 @@ public class AuthController {
     static final String REFRESH_COOKIE = "refresh_token";
 
     private final AuthService authService;
+
+    @Value("#{environment.acceptsProfiles('prod')}")
+    private boolean refreshCookieSecure;
 
     public record RegisterRequest(@NotBlank @Size(max = 100) String name,
                                   @NotBlank @Email String email,
@@ -89,9 +93,10 @@ public class AuthController {
                 .build();
     }
 
-    private static ResponseCookie refreshCookie(String value, Duration maxAge) {
+    private ResponseCookie refreshCookie(String value, Duration maxAge) {
         return ResponseCookie.from(REFRESH_COOKIE, value)
                 .httpOnly(true)
+                .secure(refreshCookieSecure)
                 .path("/api/v1/auth")
                 .sameSite("Lax")
                 .maxAge(maxAge)

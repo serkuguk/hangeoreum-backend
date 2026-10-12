@@ -10,9 +10,12 @@ import com.hangeoreum.api.identity.infrastructure.UserSettingsRepository;
 import com.hangeoreum.api.shared.storage.MediaStorage;
 import com.hangeoreum.api.shared.web.ApiException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalTime;
@@ -20,6 +23,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class MeService {
 
     private final com.hangeoreum.api.billing.application.BillingService billingService;
@@ -80,8 +84,27 @@ public class MeService {
 
     @Transactional
     public String uploadAvatar(UUID userId, MultipartFile file) {
-        String url = mediaStorage.store(file, "avatars");
-        get(userId).changeAvatar(url);
+        User user = userRepository.findByIdForUpdate(userId).orElseThrow(() -> ApiException.notFound("User"));
+        String previousUrl = user.getAvatarUrl();
+        String url = mediaStorage.storeAvatar(file);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    mediaStorage.deleteAvatar(previousUrl);
+                } catch (RuntimeException exception) {
+                    log.warn("Previous avatar cleanup failed for user {}", userId, exception);
+                }
+            }
+
+            @Override
+            public void afterCompletion(int status) {
+                if (status == STATUS_ROLLED_BACK) {
+                    mediaStorage.deleteAvatar(url);
+                }
+            }
+        });
+        user.changeAvatar(url);
         return url;
     }
 

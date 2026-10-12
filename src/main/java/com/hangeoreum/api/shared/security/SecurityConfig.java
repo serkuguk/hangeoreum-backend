@@ -2,8 +2,7 @@ package com.hangeoreum.api.shared.security;
 
 import tools.jackson.databind.ObjectMapper;
 import com.hangeoreum.api.shared.web.ErrorResponse;
-import com.hangeoreum.api.identity.domain.User;
-import com.hangeoreum.api.identity.infrastructure.UserRepository;
+import com.hangeoreum.api.identity.application.IdentityQueryService;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,7 +48,7 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http, ObjectMapper objectMapper,
-                                    UserRepository userRepository) throws Exception {
+                                    IdentityQueryService identity) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
             .cors(Customizer.withDefaults())
@@ -78,7 +77,7 @@ public class SecurityConfig {
                 .accessDeniedHandler((req, res, ex) ->
                     writeError(res, objectMapper, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN", "Access denied")))
             .oauth2ResourceServer(o -> o
-                .jwt(j -> j.jwtAuthenticationConverter(jwtAuthenticationConverter(userRepository)))
+                .jwt(j -> j.jwtAuthenticationConverter(jwtAuthenticationConverter(identity)))
                 .authenticationEntryPoint((req, res, ex) ->
                     writeError(res, objectMapper, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED", "Invalid or expired token")));
         return http.build();
@@ -91,17 +90,16 @@ public class SecurityConfig {
         om.writeValue(res.getOutputStream(), new ErrorResponse(code, message, Map.of()));
     }
 
-    private JwtAuthenticationConverter jwtAuthenticationConverter(UserRepository userRepository) {
+    private JwtAuthenticationConverter jwtAuthenticationConverter(IdentityQueryService identity) {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(jwt -> {
-            User user;
+            com.hangeoreum.api.identity.domain.UserRole role;
             try {
-                user = userRepository.findById(UUID.fromString(jwt.getSubject()))
-                        .filter(User::isActive).orElseThrow(() -> new IllegalArgumentException("Account unavailable"));
+                role = identity.activeRole(UUID.fromString(jwt.getSubject())).orElseThrow(() -> new IllegalArgumentException("Account unavailable"));
             } catch (IllegalArgumentException ex) {
                 throw new OAuth2AuthenticationException(new OAuth2Error("invalid_token", "Account unavailable", null));
             }
-            return List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()));
+            return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
         });
         return converter;
     }

@@ -2,10 +2,13 @@ package com.hangeoreum.api.vocabulary.api;
 
 import com.hangeoreum.api.shared.security.CurrentUser;
 import com.hangeoreum.api.vocabulary.application.ReviewService;
+import com.hangeoreum.api.vocabulary.application.ReviewService.AnswerCommand;
 import com.hangeoreum.api.vocabulary.domain.ReviewMode;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -21,7 +24,7 @@ public class ReviewController {
 
     private final ReviewService reviewService;
 
-    public record StartSessionRequest(@NotNull ReviewMode mode, Integer limit, UUID deckId, boolean difficultOnly) {
+    public record StartSessionRequest(@NotNull ReviewMode mode, @Min(1) @Max(100) Integer limit, UUID deckId, boolean difficultOnly) {
     }
 
     @GetMapping("/summary")
@@ -37,7 +40,7 @@ public class ReviewController {
     }
 
     @PostMapping("/sessions/{id}/answers")
-    public void submitAnswers(@PathVariable UUID id, @RequestBody List<ReviewService.AnswerCommand> answers) {
+    public void submitAnswers(@PathVariable UUID id, @RequestBody @Valid List<@NotNull @Valid AnswerCommand> answers) {
         reviewService.submitAnswers(CurrentUser.id(), id, answers);
     }
 

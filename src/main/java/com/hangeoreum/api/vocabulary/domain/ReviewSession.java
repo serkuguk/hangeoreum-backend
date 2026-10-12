@@ -73,7 +73,7 @@ public class ReviewSession {
         return finishedAt != null;
     }
 
-    private void requireOpen() {
+    public void requireOpen() {
         if (isFinished()) {
             throw ApiException.conflict("Review session is already finished");
         }

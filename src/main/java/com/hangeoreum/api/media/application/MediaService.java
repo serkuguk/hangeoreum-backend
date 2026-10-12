@@ -76,7 +76,7 @@ public class MediaService {
     public ClipDto getClipWithSubtitles(UUID clipId) {
         MediaClip clip = clipRepository.findById(clipId)
                 .orElseThrow(() -> ApiException.notFound("Clip"));
-        return toDto(clip, false, false);
+        return toDto(clip, false, false, subtitleRepository.findByClipIdOrderByLangAscPositionAsc(clipId));
     }
 
     public record FeedResponse(List<ClipDto> content, String nextCursor) {
@@ -99,13 +99,16 @@ public class MediaService {
         // watched flag for the client to skip, revisit if product insists on server-side ordering
         List<MediaClip> clips = clipRepository.feed(ClipKind.IMMERSE, cursorCreatedAt, cursorId,
                 PageRequest.of(0, size));
+        List<UUID> clipIds = clips.stream().map(MediaClip::getId).toList();
+        Map<UUID, List<Subtitle>> subtitles = subtitleRepository.findByClipIdInOrderByLangAscPositionAsc(clipIds)
+                .stream().collect(Collectors.groupingBy(Subtitle::getClipId));
         Map<UUID, UserClipView> views = viewRepository
-                .findByUserIdAndClipIdIn(userId, clips.stream().map(MediaClip::getId).toList())
+                .findByUserIdAndClipIdIn(userId, clipIds)
                 .stream().collect(Collectors.toMap(UserClipView::getClipId, Function.identity()));
         List<ClipDto> content = clips.stream()
                 .map(c -> {
                     UserClipView v = views.get(c.getId());
-                    return toDto(c, v != null, v != null && v.isLiked());
+                    return toDto(c, v != null, v != null && v.isLiked(), subtitles.getOrDefault(c.getId(), List.of()));
                 })
                 .toList();
         String nextCursor = null;
@@ -139,11 +142,9 @@ public class MediaService {
         }
     }
 
-    private ClipDto toDto(MediaClip clip, boolean watched, boolean liked) {
-        List<SubtitleDto> subtitles = subtitleRepository.findByClipIdOrderByLangAscPositionAsc(clip.getId())
-                .stream().map(SubtitleDto::from).toList();
+    private ClipDto toDto(MediaClip clip, boolean watched, boolean liked, List<Subtitle> subtitles) {
         return new ClipDto(clip.getId(), clip.getKind(), clip.getSpeakerId(), clip.getWordId(),
                 clip.getVideoUrl(), clip.getAudioUrl(), clip.getThumbnailUrl(), clip.getDurationMs(),
-                subtitles, watched, liked);
+                subtitles.stream().map(SubtitleDto::from).toList(), watched, liked);
     }
 }

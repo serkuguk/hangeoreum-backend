@@ -31,7 +31,7 @@ public class LessonCompletedHandler implements OutboxEventHandler {
         if (processedEvents.claim(CONSUMER, eventId) == 0) return;
         try {
             LessonCompleted event = objectMapper.readValue(payload, LessonCompleted.class);
-            var result = grantXpService.grant(event.userId(), event.xp(), XpSource.valueOf(event.xpSource()), event.lessonId(), eventId);
+            var result = grantXpService.grant(event.userId(), event.xp(), XpSource.valueOf(event.xpSource().name()), event.lessonId(), eventId);
             outboxService.publish(XpGranted.TYPE, new XpGranted(event.attemptId(), result.xp(), result.streakCurrent(), result.goalReached()));
         } catch (Exception exception) {
             throw new IllegalStateException("Cannot handle lesson XP", exception);

@@ -6,8 +6,8 @@ import com.hangeoreum.api.billing.domain.*;
 import com.hangeoreum.api.billing.infrastructure.PaymentRepository;
 import com.hangeoreum.api.billing.infrastructure.PlanRepository;
 import com.hangeoreum.api.billing.infrastructure.SubscriptionRepository;
-import com.hangeoreum.api.notification.application.NotificationService;
-import com.hangeoreum.api.notification.domain.NotificationType;
+import com.hangeoreum.api.shared.events.OutboxService;
+import com.hangeoreum.api.shared.events.contract.NotificationRequested;
 import com.hangeoreum.api.shared.web.ApiException;
 import com.hangeoreum.api.identity.application.IdentityQueryService;
 import com.stripe.net.Webhook;
@@ -38,7 +38,7 @@ public class StripeWebhookService {
     private final PlanRepository planRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final PaymentRepository paymentRepository;
-    private final NotificationService notificationService;
+    private final OutboxService outbox;
     private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbc;
     private final IdentityQueryService identity;
@@ -150,8 +150,8 @@ public class StripeWebhookService {
             subscription.markPastDue();
         }
         if (subscription.getUserId() != null) {
-            notificationService.notify(subscription.getUserId(), NotificationType.SYSTEM,
-                    "Проблема с оплатой", "Не удалось продлить подписку Pro — обнови способ оплаты.");
+            outbox.publish(NotificationRequested.TYPE, new NotificationRequested(subscription.getUserId(),
+                    "Проблема с оплатой", "Не удалось продлить подписку Pro — обнови способ оплаты."));
         }
     }
 
