@@ -32,3 +32,14 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Workspace directories
+.codex/
+.context/
+.ua/
+deploy/
+docs/
+graphify-out/
+scripts/
+uploads/
+/src/main/resources/db/
