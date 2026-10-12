@@ -34,6 +34,10 @@ public class DailyActivity {
 
     private short reviewsDone = 0;
 
+    private int lessonReservations = 0;
+
+    private int gameSessionsStarted = 0;
+
     private short goalXp = 20;
 
     public static DailyActivity start(UUID userId, LocalDate date, short goalXp) {
@@ -57,5 +61,13 @@ public class DailyActivity {
 
     public void registerReview() {
         reviewsDone++;
+    }
+
+    public void reserveLesson() {
+        lessonReservations++;
+    }
+
+    public void reserveGame() {
+        gameSessionsStarted++;
     }
 }

@@ -1,4 +1,5 @@
 HELP.md
+.local-backups/
 target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
@@ -31,3 +32,15 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Workspace directories
+/AGENTS.md
+.codex/
+.context/
+.ua/
+deploy/
+docs/
+graphify-out/
+scripts/
+uploads/
+/src/main/resources/db/

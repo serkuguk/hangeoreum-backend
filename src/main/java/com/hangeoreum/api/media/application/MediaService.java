@@ -29,6 +29,36 @@ public class MediaService {
     private final MediaClipRepository clipRepository;
     private final SubtitleRepository subtitleRepository;
     private final UserClipViewRepository viewRepository;
+    private final com.hangeoreum.api.learning.application.LearningQueryService learningQueryService;
+    private final jakarta.persistence.EntityManager entityManager;
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void lockStoryClip(UUID clipId) {
+        MediaClip clip = lockClip(clipId);
+        if (clip.getKind() != ClipKind.STORY) {
+            throw ApiException.conflict("Story requires a STORY clip");
+        }
+    }
+
+    @Transactional
+    public MediaClip updateClip(UUID id, ClipKind kind, UUID speakerId, UUID wordId, Integer durationMs) {
+        MediaClip clip = lockClip(id);
+        if (kind != ClipKind.STORY && learningQueryService.usesStoryClip(id)) {
+            throw ApiException.conflict("Clip is used by a story");
+        }
+        clip.setKind(kind);
+        clip.setSpeakerId(speakerId);
+        clip.setWordId(wordId);
+        clip.setDurationMs(durationMs);
+        return clip;
+    }
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public MediaClip lockClip(UUID id) {
+        MediaClip clip = entityManager.find(MediaClip.class, id, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        if (clip == null) throw ApiException.notFound("Clip");
+        return clip;
+    }
 
     public record SubtitleDto(String lang, short position, String text, int startMs, int endMs) {
         static SubtitleDto from(Subtitle s) {
@@ -46,7 +76,7 @@ public class MediaService {
     public ClipDto getClipWithSubtitles(UUID clipId) {
         MediaClip clip = clipRepository.findById(clipId)
                 .orElseThrow(() -> ApiException.notFound("Clip"));
-        return toDto(clip, false, false);
+        return toDto(clip, false, false, subtitleRepository.findByClipIdOrderByLangAscPositionAsc(clipId));
     }
 
     public record FeedResponse(List<ClipDto> content, String nextCursor) {
@@ -69,13 +99,16 @@ public class MediaService {
         // watched flag for the client to skip, revisit if product insists on server-side ordering
         List<MediaClip> clips = clipRepository.feed(ClipKind.IMMERSE, cursorCreatedAt, cursorId,
                 PageRequest.of(0, size));
+        List<UUID> clipIds = clips.stream().map(MediaClip::getId).toList();
+        Map<UUID, List<Subtitle>> subtitles = subtitleRepository.findByClipIdInOrderByLangAscPositionAsc(clipIds)
+                .stream().collect(Collectors.groupingBy(Subtitle::getClipId));
         Map<UUID, UserClipView> views = viewRepository
-                .findByUserIdAndClipIdIn(userId, clips.stream().map(MediaClip::getId).toList())
+                .findByUserIdAndClipIdIn(userId, clipIds)
                 .stream().collect(Collectors.toMap(UserClipView::getClipId, Function.identity()));
         List<ClipDto> content = clips.stream()
                 .map(c -> {
                     UserClipView v = views.get(c.getId());
-                    return toDto(c, v != null, v != null && v.isLiked());
+                    return toDto(c, v != null, v != null && v.isLiked(), subtitles.getOrDefault(c.getId(), List.of()));
                 })
                 .toList();
         String nextCursor = null;
@@ -109,11 +142,9 @@ public class MediaService {
         }
     }
 
-    private ClipDto toDto(MediaClip clip, boolean watched, boolean liked) {
-        List<SubtitleDto> subtitles = subtitleRepository.findByClipIdOrderByLangAscPositionAsc(clip.getId())
-                .stream().map(SubtitleDto::from).toList();
+    private ClipDto toDto(MediaClip clip, boolean watched, boolean liked, List<Subtitle> subtitles) {
         return new ClipDto(clip.getId(), clip.getKind(), clip.getSpeakerId(), clip.getWordId(),
                 clip.getVideoUrl(), clip.getAudioUrl(), clip.getThumbnailUrl(), clip.getDurationMs(),
-                subtitles, watched, liked);
+                subtitles.stream().map(SubtitleDto::from).toList(), watched, liked);
     }
 }

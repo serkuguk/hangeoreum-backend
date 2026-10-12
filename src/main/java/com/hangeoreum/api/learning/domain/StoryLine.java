@@ -41,6 +41,9 @@ public class StoryLine {
 
     public static StoryLine create(UUID storyId, short position, String speaker, String textKo,
                                    String textTranslation, String breakdown, Integer startMs, Integer endMs) {
+        if ((startMs == null) != (endMs == null) || (startMs != null && (startMs < 0 || endMs <= startMs))) {
+            throw com.hangeoreum.api.shared.web.ApiException.badRequest("Story timing must be absent or 0 <= startMs < endMs");
+        }
         StoryLine line = new StoryLine();
         line.storyId = storyId;
         line.position = position;

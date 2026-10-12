@@ -1,13 +1,11 @@
 package com.hangeoreum.api.identity.domain;
 
-import com.hangeoreum.api.shared.web.ApiException;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -52,7 +50,7 @@ public class User {
     public static User register(String name, String email, String passwordHash) {
         User user = new User();
         user.name = name;
-        user.email = email.toLowerCase();
+        user.email = email.toLowerCase(java.util.Locale.ROOT);
         user.passwordHash = passwordHash;
         return user;
     }
@@ -65,11 +63,8 @@ public class User {
         this.startLevel = startLevel;
     }
 
-    public void changePassword(PasswordEncoder encoder, String current, String next) {
-        if (passwordHash == null || !encoder.matches(current, passwordHash)) {
-            throw ApiException.badRequest("Current password is incorrect");
-        }
-        this.passwordHash = encoder.encode(next);
+    public void changePasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
     }
 
     public void setInitialPassword(String hash) {

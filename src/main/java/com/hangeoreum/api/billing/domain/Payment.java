@@ -34,10 +34,18 @@ public class Payment {
 
     private String providerPaymentId;
 
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private PayProvider provider = PayProvider.STRIPE;
+
     private Instant createdAt = Instant.now();
 
     public static Payment record(UUID userId, UUID subscriptionId, int amountCents, String currency,
                                  PaymentStatus status, String providerPaymentId) {
+        if (amountCents < 0) {
+            throw com.hangeoreum.api.shared.web.ApiException.badRequest("Payment amount must be nonnegative");
+        }
         Payment payment = new Payment();
         payment.userId = userId;
         payment.subscriptionId = subscriptionId;

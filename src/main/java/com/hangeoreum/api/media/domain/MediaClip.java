@@ -42,8 +42,12 @@ public class MediaClip {
     @Setter
     private String thumbnailUrl;
 
-    @Setter
     private Integer durationMs;
+
+    public void setDurationMs(Integer durationMs) {
+        if (durationMs != null && durationMs < 0) throw ApiException.badRequest("Duration must be nonnegative");
+        this.durationMs = durationMs;
+    }
 
     private boolean isPublished = false;
 

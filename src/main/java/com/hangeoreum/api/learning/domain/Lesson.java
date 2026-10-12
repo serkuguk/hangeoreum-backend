@@ -33,8 +33,12 @@ public class Lesson {
     @Setter
     private String title;
 
-    @Setter
     private short xpReward = 10;
+
+    public void setXpReward(short xpReward) {
+        if (xpReward < 0) throw com.hangeoreum.api.shared.web.ApiException.badRequest("XP must be nonnegative");
+        this.xpReward = xpReward;
+    }
 
     @Setter
     private boolean isFree = false;
@@ -49,7 +53,7 @@ public class Lesson {
         lesson.position = position;
         lesson.type = type;
         lesson.title = title;
-        lesson.xpReward = xpReward;
+        lesson.setXpReward(xpReward);
         lesson.isFree = isFree;
         return lesson;
     }

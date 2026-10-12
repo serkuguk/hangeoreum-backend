@@ -1,7 +1,6 @@
 package com.hangeoreum.api.learning.application;
 
 import com.hangeoreum.api.billing.application.AccessService;
-import com.hangeoreum.api.billing.domain.AccessPolicy;
 import com.hangeoreum.api.billing.domain.Feature;
 import com.hangeoreum.api.gamification.application.GrantXpService;
 import com.hangeoreum.api.gamification.domain.XpSource;
@@ -9,8 +8,10 @@ import com.hangeoreum.api.learning.domain.*;
 import com.hangeoreum.api.learning.infrastructure.*;
 import com.hangeoreum.api.media.application.MediaService;
 import com.hangeoreum.api.shared.web.ApiException;
-import com.hangeoreum.api.vocabulary.api.WordDto;
-import com.hangeoreum.api.vocabulary.application.VocabularyService;
+import com.hangeoreum.api.shared.events.OutboxService;
+import com.hangeoreum.api.shared.events.contract.LessonCompleted;
+import com.hangeoreum.api.shared.events.contract.LessonWordsAdded;
+import com.hangeoreum.api.shared.events.contract.XpGranted;
 import com.fasterxml.jackson.annotation.JsonRawValue;
 import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -38,14 +39,113 @@ public class LearningService {
     private final UserLetterProgressRepository letterProgressRepository;
     private final AccessService accessService;
     private final GrantXpService grantXpService;
-    private final VocabularyService vocabularyService;
     private final MediaService mediaService;
+    private final OutboxService outboxService;
     private final ObjectMapper objectMapper;
+    private final jakarta.persistence.EntityManager entityManager;
+
+    public record ReorderItem(@jakarta.validation.constraints.NotNull UUID id,
+                              @jakarta.validation.constraints.PositiveOrZero short position) {}
+
+    private static void validateReorder(List<ReorderItem> items) {
+        Set<UUID> ids = new HashSet<>();
+        for (ReorderItem item : items) {
+            if (item == null || item.id() == null || item.position() < 0 || !ids.add(item.id())) {
+                throw ApiException.badRequest("Invalid or duplicate reorder item");
+            }
+        }
+    }
+
+    @Transactional
+    public void reorderUnits(List<ReorderItem> items) {
+        validateReorder(items);
+        if (items.isEmpty()) return;
+        List<Unit> units = items.stream().map(item -> unitRepository.findById(item.id())
+                .orElseThrow(() -> ApiException.notFound("Unit"))).toList();
+        UUID parent = units.getFirst().getCourseId();
+        if (units.stream().anyMatch(unit -> !parent.equals(unit.getCourseId()))) {
+            throw ApiException.badRequest("Units must belong to one course");
+        }
+        entityManager.find(Course.class, parent, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        units.stream().sorted(Comparator.comparing(Unit::getId))
+                .forEach(unit -> entityManager.refresh(unit, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE));
+        entityManager.createNativeQuery("SET CONSTRAINTS units_course_id_position_key DEFERRED").executeUpdate();
+        for (int i = 0; i < units.size(); i++) units.get(i).setPosition(items.get(i).position());
+        entityManager.flush();
+        entityManager.createNativeQuery("SET CONSTRAINTS units_course_id_position_key IMMEDIATE").executeUpdate();
+    }
+
+    @Transactional
+    public void reorderLessons(List<ReorderItem> items) {
+        validateReorder(items);
+        if (items.isEmpty()) return;
+        List<Lesson> lessons = items.stream().map(item -> lessonRepository.findById(item.id())
+                .orElseThrow(() -> ApiException.notFound("Lesson"))).toList();
+        UUID parent = lessons.getFirst().getUnitId();
+        if (lessons.stream().anyMatch(lesson -> !parent.equals(lesson.getUnitId()))) {
+            throw ApiException.badRequest("Lessons must belong to one unit");
+        }
+        entityManager.find(Unit.class, parent, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        lessons.stream().sorted(Comparator.comparing(Lesson::getId))
+                .forEach(lesson -> entityManager.refresh(lesson, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE));
+        entityManager.createNativeQuery("SET CONSTRAINTS lessons_unit_id_position_key DEFERRED").executeUpdate();
+        for (int i = 0; i < lessons.size(); i++) lessons.get(i).setPosition(items.get(i).position());
+        entityManager.flush();
+        entityManager.createNativeQuery("SET CONSTRAINTS lessons_unit_id_position_key IMMEDIATE").executeUpdate();
+    }
+
+    @Transactional
+    public Lesson updateLesson(UUID id, LessonType type, String title, short xpReward, boolean free) {
+        Lesson lesson = lockLesson(id);
+        if (type != LessonType.STORY && storyRepository.existsByLessonId(id)) {
+            throw ApiException.conflict("Lesson has a story");
+        }
+        lesson.setType(type);
+        lesson.setTitle(title);
+        lesson.setXpReward(xpReward);
+        lesson.setFree(free);
+        return lesson;
+    }
+
+    public record StoryLineRequest(short position, String speaker,
+                                   @jakarta.validation.constraints.NotBlank String textKo,
+                                   @jakarta.validation.constraints.NotBlank String textTranslation,
+                                   tools.jackson.databind.JsonNode breakdown, Integer startMs, Integer endMs) {}
+
+    public record StoryRequest(@jakarta.validation.constraints.NotBlank String title, UUID clipId,
+                               List<@jakarta.validation.constraints.NotNull @jakarta.validation.Valid StoryLineRequest> lines) {}
+
+    @Transactional
+    public Story putStory(UUID lessonId, StoryRequest request) {
+        if (lockLesson(lessonId).getType() != LessonType.STORY) {
+            throw ApiException.conflict("Story requires a STORY lesson");
+        }
+        if (request.clipId() != null) mediaService.lockStoryClip(request.clipId());
+        Story story = storyRepository.findByLessonId(lessonId)
+                .orElseGet(() -> storyRepository.save(Story.create(lessonId, request.title(), request.clipId())));
+        story.setTitle(request.title());
+        story.setClipId(request.clipId());
+        storyLineRepository.deleteByStoryId(story.getId());
+        storyLineRepository.flush();
+        if (request.lines() != null) {
+            request.lines().forEach(line -> storyLineRepository.save(StoryLine.create(story.getId(), line.position(),
+                    line.speaker(), line.textKo(), line.textTranslation(),
+                    line.breakdown() == null ? null : line.breakdown().toString(), line.startMs(), line.endMs())));
+        }
+        return story;
+    }
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public Lesson lockLesson(UUID id) {
+        Lesson lesson = entityManager.find(Lesson.class, id, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        if (lesson == null) throw ApiException.notFound("Lesson");
+        return lesson;
+    }
 
     // ---- course map ----
 
     public record LessonNode(UUID id, String title, LessonType type, short position, short xpReward,
-                             boolean isFree, boolean hasAccess, String status, Short score) {
+                             boolean isFree, boolean hasAccess, LessonAvailability.Status status, Short score) {
     }
 
     public record UnitNode(UUID id, String title, String description, String color, short position,
@@ -88,7 +188,7 @@ public class LearningService {
                                 .map(lesson -> new LessonNode(lesson.getId(), lesson.getTitle(), lesson.getType(),
                                         lesson.getPosition(), lesson.getXpReward(), lesson.isFree(),
                                         lesson.isFree() || isPro,
-                                        (isAdmin ? LessonAvailability.Status.AVAILABLE : statuses.get(lesson.getId())).name(),
+                                        isAdmin ? LessonAvailability.Status.AVAILABLE : statuses.get(lesson.getId()),
                                         Optional.ofNullable(progressByLesson.get(lesson.getId()))
                                                 .map(LessonProgress::getScore).orElse(null)))
                                 .toList()))
@@ -125,12 +225,14 @@ public class LearningService {
         return new TipDto(tip.getId(), tip.getTitle(), tip.getBodyMd(), tip.getExamples());
     }
 
-    public record CompleteResult(UUID attemptId, Instant savedAt, int xp, List<WordDto> newWords,
+    public record CompleteResult(UUID attemptId, Instant savedAt, int xp, List<LessonWordsAdded.Word> newWords,
                                  int streak, boolean goalReached) {
     }
+    public record CompletionAccepted(UUID attemptId, Instant acceptedAt, String status) {}
+    public record CompletionStatus(String status, CompleteResult result) {}
 
     @Transactional
-    public CompleteResult completeLesson(UUID userId, UUID lessonId, UUID attemptId, short score, short accuracy) {
+    public CompletionAccepted completeLesson(UUID userId, UUID lessonId, UUID attemptId, short score, short accuracy) {
         Lesson lesson = requireLessonAccess(userId, lessonId);
         UUID receiptId = attemptId == null ? UUID.randomUUID() : attemptId;
         if (attemptRepository.claim(receiptId, userId, lessonId, score, accuracy) == 0) {
@@ -139,28 +241,44 @@ public class LearningService {
             if (!receipt.matches(userId, lessonId, score, accuracy)) {
                 throw ApiException.conflict("Completion receipt does not match this request");
             }
-            if (!receipt.isCompleted()) {
-                throw ApiException.conflict("Completion receipt is being processed");
-            }
-            return readResult(receipt);
+            return new CompletionAccepted(receiptId, receipt.getCreatedAt(), receipt.isCompleted() ? "COMPLETED" : "PENDING");
         }
+
+        grantXpService.reserveLesson(userId, accessService.isPro(userId) || accessService.isAdmin(userId));
 
         progressRepository.ensureExists(userId, lessonId);
         LessonProgress progress = progressRepository.findByUserIdAndLessonIdForUpdate(userId, lessonId)
                 .orElseThrow(() -> new IllegalStateException("Lesson progress was not created"));
         boolean repeat = progress.complete(score, accuracy);
 
-        List<WordDto> newWords = vocabularyService.addLessonWords(userId, lessonId);
         int xp = repeat ? lesson.getXpReward() / 2 : lesson.getXpReward();
-        XpSource source = lesson.getType() == LessonType.STORY ? XpSource.STORY : XpSource.LESSON;
-        GrantXpService.GrantResult granted = grantXpService.grant(userId, xp, source, lessonId, receiptId);
         Instant savedAt = Instant.now();
-        CompleteResult result = new CompleteResult(receiptId, savedAt, granted.xp(), newWords,
-                granted.streakCurrent(), granted.goalReached());
-        LessonAttempt receipt = attemptRepository.findById(receiptId)
-                .orElseThrow(() -> new IllegalStateException("Completion receipt was not created"));
-        receipt.complete(writeResult(result), savedAt);
-        return result;
+        outboxService.publish(LessonCompleted.TYPE, new LessonCompleted(receiptId, userId, lessonId, xp,
+                lesson.getType() == LessonType.STORY ? LessonCompleted.XpSource.STORY : LessonCompleted.XpSource.LESSON));
+        return new CompletionAccepted(receiptId, savedAt, "PENDING");
+    }
+
+    @Transactional(readOnly = true)
+    public CompletionStatus completionStatus(UUID userId, UUID attemptId) {
+        LessonAttempt receipt = attemptRepository.findById(attemptId)
+                .filter(value -> value.getUserId().equals(userId))
+                .orElseThrow(() -> ApiException.notFound("Completion receipt"));
+        return new CompletionStatus(receipt.isCompleted() ? "COMPLETED" : "PENDING",
+                receipt.isCompleted() ? readResult(receipt) : null);
+    }
+
+    @Transactional
+    public void recordLessonWords(UUID attemptId, List<LessonWordsAdded.Word> words) {
+        LessonAttempt receipt = attemptRepository.findByIdForUpdate(attemptId).orElseThrow();
+        receipt.recordWords(writeValue(words));
+        finishReceiptIfReady(receipt);
+    }
+
+    @Transactional
+    public void recordXpGranted(XpGranted event) {
+        LessonAttempt receipt = attemptRepository.findByIdForUpdate(event.attemptId()).orElseThrow();
+        receipt.recordXp(event.xp(), event.streak(), event.goalReached());
+        finishReceiptIfReady(receipt);
     }
 
     // ---- story ----
@@ -246,16 +364,11 @@ public class LearningService {
         LessonNode node = map.units().stream().flatMap(unit -> unit.lessons().stream())
                 .filter(candidate -> candidate.id().equals(lessonId)).findFirst()
                 .orElseThrow(() -> ApiException.notFound("Lesson"));
-        if (!accessService.isAdmin(userId) && "LOCKED".equals(node.status())) {
+        if (!accessService.isAdmin(userId) && node.status() == LessonAvailability.Status.LOCKED) {
             throw ApiException.forbidden("LESSON_LOCKED", "Complete the previous lesson first");
         }
         if (!node.hasAccess()) {
             accessService.requirePro(userId, Feature.LESSON_PRO);
-        }
-        boolean alreadyCompleted = "COMPLETED".equals(node.status());
-        if (!accessService.isPro(userId) && !alreadyCompleted
-                && !AccessPolicy.withinFreeLessonLimit(grantXpService.lessonsCompletedToday(userId))) {
-            throw ApiException.forbidden("LIMIT_REACHED", "Daily free lesson limit reached");
         }
         return lesson;
     }
@@ -268,8 +381,12 @@ public class LearningService {
     }
 
     private String writeResult(CompleteResult result) {
+        return writeValue(result);
+    }
+
+    private String writeValue(Object value) {
         try {
-            return objectMapper.writeValueAsString(result);
+            return objectMapper.writeValueAsString(value);
         } catch (Exception exception) {
             throw new IllegalStateException("Cannot store completion receipt", exception);
         }
@@ -280,6 +397,22 @@ public class LearningService {
             return objectMapper.readValue(receipt.getResult(), CompleteResult.class);
         } catch (Exception exception) {
             throw new IllegalStateException("Cannot read completion receipt", exception);
+        }
+    }
+
+    private void finishReceiptIfReady(LessonAttempt receipt) {
+        if (!receipt.isCompleted() && receipt.hasCompletionDetails()) {
+            receipt.complete(writeResult(new CompleteResult(receipt.getId(), Instant.now(), receipt.getXp(),
+                    readWords(receipt.getNewWords()), receipt.getStreak(), receipt.getGoalReached())), Instant.now());
+        }
+    }
+
+    private List<LessonWordsAdded.Word> readWords(String value) {
+        try {
+            return objectMapper.readValue(value, objectMapper.getTypeFactory()
+                    .constructCollectionType(List.class, LessonWordsAdded.Word.class));
+        } catch (Exception exception) {
+            throw new IllegalStateException("Cannot read lesson words", exception);
         }
     }
 }

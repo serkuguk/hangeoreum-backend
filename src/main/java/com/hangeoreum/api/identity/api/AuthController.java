@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -24,12 +25,22 @@ public class AuthController {
 
     private final AuthService authService;
 
+    @Value("#{environment.acceptsProfiles('prod')}")
+    private boolean refreshCookieSecure;
+
     public record RegisterRequest(@NotBlank @Size(max = 100) String name,
                                   @NotBlank @Email String email,
                                   @NotBlank @Size(min = 8, max = 100) String password) {
     }
 
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {
+    }
+
+    public record PasswordResetRequest(@NotBlank @Email String email) {
+    }
+
+    public record PasswordResetConfirmRequest(@NotBlank String token,
+                                              @NotBlank @Size(min = 8, max = 100) String newPassword) {
     }
 
     public record AuthResponse(String accessToken, UserDto user) {
@@ -51,6 +62,20 @@ public class AuthController {
                 .body(new AuthResponse(pair.accessToken(), UserDto.from(pair.user())));
     }
 
+    @PostMapping("/password-reset/request")
+    public ResponseEntity<Void> requestPasswordReset(
+            @RequestBody @jakarta.validation.Valid PasswordResetRequest request) {
+        authService.requestPasswordReset(request.email());
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<Void> confirmPasswordReset(
+            @RequestBody @jakarta.validation.Valid PasswordResetConfirmRequest request) {
+        authService.confirmPasswordReset(request.token(), request.newPassword());
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/refresh")
     public ResponseEntity<AuthResponse> refresh(
             @CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken) {
@@ -68,9 +93,10 @@ public class AuthController {
                 .build();
     }
 
-    private static ResponseCookie refreshCookie(String value, Duration maxAge) {
+    private ResponseCookie refreshCookie(String value, Duration maxAge) {
         return ResponseCookie.from(REFRESH_COOKIE, value)
                 .httpOnly(true)
+                .secure(refreshCookieSecure)
                 .path("/api/v1/auth")
                 .sameSite("Lax")
                 .maxAge(maxAge)

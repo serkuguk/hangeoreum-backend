@@ -6,6 +6,8 @@ import com.hangeoreum.api.media.application.MediaService;
 import com.hangeoreum.api.shared.security.CurrentUser;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -22,10 +24,10 @@ public class ImmerseController {
 
     @GetMapping("/feed")
     public MediaService.FeedResponse feed(@RequestParam(required = false) String cursor,
-                                          @RequestParam(defaultValue = "10") int size) {
+                                          @RequestParam(defaultValue = "10") @Min(1) @Max(30) int size) {
         UUID userId = CurrentUser.id();
         accessService.requirePro(userId, Feature.IMMERSE);
-        return mediaService.getImmerseFeed(userId, cursor, Math.min(size, 30));
+        return mediaService.getImmerseFeed(userId, cursor, size);
     }
 
     @PostMapping("/{clipId}/view")

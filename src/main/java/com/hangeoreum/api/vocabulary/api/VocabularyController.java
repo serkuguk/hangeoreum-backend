@@ -7,7 +7,9 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
+import com.hangeoreum.api.shared.web.PageResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,21 +24,15 @@ public class VocabularyController {
 
     private final VocabularyService vocabularyService;
 
-    public record PageResponse<T>(List<T> content, long totalElements, int page) {
-        static <T> PageResponse<T> from(Page<T> p) {
-            return new PageResponse<>(p.getContent(), p.getTotalElements(), p.getNumber());
-        }
-    }
-
     @GetMapping("/vocabulary")
     public PageResponse<UserWordDto> vocabulary(@RequestParam(required = false) String search,
                                                 @RequestParam(required = false) Short level,
                                                 @RequestParam(required = false) UUID topicId,
                                                 @RequestParam(required = false) String sort,
-                                                @RequestParam(defaultValue = "0") int page,
-                                                @RequestParam(defaultValue = "20") int size) {
+                                                @RequestParam(defaultValue = "0") @Min(0) int page,
+                                                @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         return PageResponse.from(vocabularyService.getVocabulary(
-                CurrentUser.id(), search, level, topicId, sort, page, Math.min(size, 100)));
+                CurrentUser.id(), search, level, topicId, sort, page, size));
     }
 
     public record SetDifficultRequest(boolean isDifficult) {

@@ -2,6 +2,7 @@ package com.hangeoreum.api.shared.security;
 
 import tools.jackson.databind.ObjectMapper;
 import com.hangeoreum.api.shared.web.ErrorResponse;
+import com.hangeoreum.api.identity.application.IdentityQueryService;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +19,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
@@ -31,6 +34,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Configuration
 @EnableMethodSecurity
@@ -43,7 +47,8 @@ public class SecurityConfig {
     private List<String> corsOrigins;
 
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
+    SecurityFilterChain filterChain(HttpSecurity http, ObjectMapper objectMapper,
+                                    IdentityQueryService identity) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
             .cors(Customizer.withDefaults())
@@ -57,6 +62,13 @@ public class SecurityConfig {
                     "/media/**",
                     "/actuator/health")
                 .permitAll()
+                .requestMatchers(
+                    "/api/v1/admin/words/**", "/api/v1/admin/topics/**",
+                    "/api/v1/admin/courses/**", "/api/v1/admin/units/**",
+                    "/api/v1/admin/lessons/**", "/api/v1/admin/alphabet/**",
+                    "/api/v1/admin/speakers/**", "/api/v1/admin/clips/**",
+                    "/api/v1/admin/tips", "/api/v1/admin/notifications/broadcast")
+                .hasAnyRole("ADMIN", "EDITOR")
                 .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated())
             .exceptionHandling(e -> e
@@ -65,7 +77,7 @@ public class SecurityConfig {
                 .accessDeniedHandler((req, res, ex) ->
                     writeError(res, objectMapper, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN", "Access denied")))
             .oauth2ResourceServer(o -> o
-                .jwt(j -> j.jwtAuthenticationConverter(jwtAuthenticationConverter()))
+                .jwt(j -> j.jwtAuthenticationConverter(jwtAuthenticationConverter(identity)))
                 .authenticationEntryPoint((req, res, ex) ->
                     writeError(res, objectMapper, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED", "Invalid or expired token")));
         return http.build();
@@ -78,11 +90,16 @@ public class SecurityConfig {
         om.writeValue(res.getOutputStream(), new ErrorResponse(code, message, Map.of()));
     }
 
-    private JwtAuthenticationConverter jwtAuthenticationConverter() {
+    private JwtAuthenticationConverter jwtAuthenticationConverter(IdentityQueryService identity) {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(jwt -> {
-            String role = jwt.getClaimAsString("role");
-            return role == null ? List.of() : List.of(new SimpleGrantedAuthority("ROLE_" + role));
+            com.hangeoreum.api.identity.domain.UserRole role;
+            try {
+                role = identity.activeRole(UUID.fromString(jwt.getSubject())).orElseThrow(() -> new IllegalArgumentException("Account unavailable"));
+            } catch (IllegalArgumentException ex) {
+                throw new OAuth2AuthenticationException(new OAuth2Error("invalid_token", "Account unavailable", null));
+            }
+            return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
         });
         return converter;
     }

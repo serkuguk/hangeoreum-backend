@@ -48,6 +48,7 @@ public class BillingController {
     }
 
     @PostMapping("/webhook/stripe")
+    @io.swagger.v3.oas.annotations.Operation(description = "Signed Stripe events are processed atomically and deduplicated. Returns 503 BILLING_NOT_READY when a referenced subscription has not arrived yet; retry the event.")
     public ResponseEntity<Void> stripeWebhook(@RequestBody String payload,
                                               @RequestHeader("Stripe-Signature") String signature) {
         webhookService.handle(payload, signature);

@@ -28,6 +28,11 @@ public class LessonAttempt {
     private String status;
     @JdbcTypeCode(SqlTypes.JSON)
     private String result;
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String newWords;
+    private Integer xp;
+    private Integer streak;
+    private Boolean goalReached;
     private Instant savedAt;
     private Instant createdAt;
 
@@ -44,5 +49,19 @@ public class LessonAttempt {
         this.status = "COMPLETED";
         this.result = result;
         this.savedAt = savedAt;
+    }
+
+    public void recordWords(String words) {
+        this.newWords = words;
+    }
+
+    public void recordXp(int xp, int streak, boolean goalReached) {
+        this.xp = xp;
+        this.streak = streak;
+        this.goalReached = goalReached;
+    }
+
+    public boolean hasCompletionDetails() {
+        return newWords != null && xp != null && streak != null && goalReached != null;
     }
 }

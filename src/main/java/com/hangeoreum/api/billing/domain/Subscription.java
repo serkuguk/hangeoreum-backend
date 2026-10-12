@@ -77,19 +77,10 @@ public class Subscription {
     }
 
     public boolean isActive(Instant now) {
-        boolean statusOk = switch (status) {
-            case ACTIVE -> true;
+        return switch (status) {
+            case ACTIVE -> currentPeriodEnd == null || now.isBefore(currentPeriodEnd);
             case PAST_DUE -> currentPeriodEnd == null || now.isBefore(currentPeriodEnd.plus(PAST_DUE_GRACE));
             case CANCELED, EXPIRED -> false;
         };
-        if (!statusOk) {
-            return false;
-        }
-        // lifetime -> currentPeriodEnd == null
-        if (currentPeriodEnd == null) {
-            return true;
-        }
-        Instant deadline = status == SubStatus.PAST_DUE ? currentPeriodEnd.plus(PAST_DUE_GRACE) : currentPeriodEnd;
-        return now.isBefore(deadline);
     }
 }

@@ -2,6 +2,15 @@ param(
     [string]$ServiceName = "coreano-api",
     [string]$DeployDir = "C:\apps\coreano-api",
     [string]$AppPort = "8082",
+    [string]$EnvFile,
+    [string]$DatasourceUrl,
+    [string]$DatasourceUsername,
+    [string]$DatasourcePassword,
+    [string]$JwtSecret,
+    [string]$FrontOrigin,
+    [string]$FrontUrl,
+    [string]$StripeSecretKey,
+    [string]$StripeWebhookSecret,
     [string]$ReleaseJar,
     [string]$ReleaseName,
     [string]$DeployUser = "jenkins"
@@ -43,6 +52,49 @@ if (!(Test-Path $appJar)) {
     throw "Application jar was not found: $appJar"
 }
 
+$nssm = (Get-Command nssm.exe -ErrorAction SilentlyContinue).Source
+if (!$nssm) {
+    $nssm = "C:\tools\nssm\nssm.exe"
+}
+
+if (!(Test-Path $nssm)) {
+    throw "nssm.exe was not found. Install NSSM and make it available in PATH or at C:\tools\nssm\nssm.exe."
+}
+
+$envValues = @{}
+if ($EnvFile) {
+    if (!(Test-Path $EnvFile)) {
+        throw "Environment file was not found: $EnvFile"
+    }
+
+    Get-Content $EnvFile | ForEach-Object {
+        if ($_ -and $_ -notmatch '^\s*#') {
+            $name, $value = $_ -split '=', 2
+            if ($name) {
+                $envValues[$name.Trim()] = $value
+            }
+        }
+    }
+}
+
+if ($DatasourceUrl) { $envValues["SPRING_DATASOURCE_URL"] = $DatasourceUrl }
+if ($DatasourceUsername) { $envValues["SPRING_DATASOURCE_USERNAME"] = $DatasourceUsername }
+if ($DatasourcePassword) { $envValues["SPRING_DATASOURCE_PASSWORD"] = $DatasourcePassword }
+if ($JwtSecret) { $envValues["JWT_SECRET"] = $JwtSecret }
+if ($FrontOrigin) { $envValues["FRONT_ORIGIN"] = $FrontOrigin }
+if ($FrontUrl) { $envValues["FRONT_URL"] = $FrontUrl }
+if ($StripeSecretKey) { $envValues["STRIPE_SECRET_KEY"] = $StripeSecretKey }
+if ($StripeWebhookSecret) { $envValues["STRIPE_WEBHOOK_SECRET"] = $StripeWebhookSecret }
+
+$serviceEnv = @(
+    "SERVER_PORT=$AppPort",
+    "MEDIA_DIR=$uploadsDir"
+)
+
+foreach ($name in $envValues.Keys) {
+    $serviceEnv += "$name=$($envValues[$name])"
+}
+
 if ($service) {
     Write-Host "Service $ServiceName already exists."
 } else {
@@ -51,22 +103,12 @@ if ($service) {
         throw "java.exe was not found in PATH. Install Java 21 and add it to PATH."
     }
 
-    $nssm = (Get-Command nssm.exe -ErrorAction SilentlyContinue).Source
-    if (!$nssm) {
-        $nssm = "C:\tools\nssm\nssm.exe"
-    }
-
-    if (!(Test-Path $nssm)) {
-        throw "nssm.exe was not found. Install NSSM and make it available in PATH or at C:\tools\nssm\nssm.exe."
-    }
-
     & $nssm install $ServiceName $java "-jar `"$appJar`""
     & $nssm set $ServiceName AppDirectory $DeployDir
     & $nssm set $ServiceName AppStdout (Join-Path $logsDir "stdout.log")
     & $nssm set $ServiceName AppStderr (Join-Path $logsDir "stderr.log")
     & $nssm set $ServiceName AppRotateFiles 1
     & $nssm set $ServiceName AppRotateOnline 1
-    & $nssm set $ServiceName AppEnvironmentExtra "SERVER_PORT=$AppPort" "MEDIA_DIR=$uploadsDir"
     & $nssm set $ServiceName Start SERVICE_AUTO_START
 
     $deploySid = [Security.Principal.NTAccount]::new($env:COMPUTERNAME, $DeployUser).
@@ -93,6 +135,7 @@ if ($service) {
     Write-Host "Service $ServiceName was created."
 }
 
+& $nssm set $ServiceName AppEnvironmentExtra $serviceEnv
 Start-Service -Name $ServiceName
 (Get-Service -Name $ServiceName).WaitForStatus(
     [System.ServiceProcess.ServiceControllerStatus]::Running,

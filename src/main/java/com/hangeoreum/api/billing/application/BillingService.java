@@ -23,6 +23,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class BillingService {
 
+    private final com.hangeoreum.api.billing.infrastructure.PaymentRepository paymentRepository;
     private final PlanRepository planRepository;
     private final SubscriptionRepository subscriptionRepository;
 
@@ -72,6 +73,14 @@ public class BillingService {
                 .map(sub -> new SubscriptionDto(sub.getId(),
                         planRepository.findById(sub.getPlanId()).map(Plan::getCode).orElse(null),
                         sub.getStatus(), sub.getCurrentPeriodEnd(), sub.isActive(Instant.now())));
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasActivePaidSubscription(UUID userId) {
+        // ponytail: Local billing status is the guard; reconcile with Stripe before offering automatic cancellation.
+        return subscriptionRepository.findByUserId(userId).stream()
+                .anyMatch(sub -> sub.getProviderSubId() != null
+                        && (sub.getStatus() == SubStatus.ACTIVE || sub.getStatus() == SubStatus.PAST_DUE));
     }
 
     public String createCheckout(UUID userId, String planCode) {
@@ -134,4 +143,15 @@ public class BillingService {
             throw new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "STRIPE_ERROR", e.getMessage());
         }
     }
+
+    @Transactional(readOnly = true)
+    public List<Payment> payments(UUID userId) {
+        return paymentRepository.findByUserIdOrderByCreatedAtDesc(userId);
+    }
+
+    @Transactional(readOnly = true)
+    public long activeSubscriptionCount() {
+        return subscriptionRepository.countByStatus(SubStatus.ACTIVE);
+    }
+
 }

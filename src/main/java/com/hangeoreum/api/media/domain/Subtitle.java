@@ -33,6 +33,9 @@ public class Subtitle {
     private int endMs;
 
     public static Subtitle create(UUID clipId, String lang, short position, String text, int startMs, int endMs) {
+        if (startMs < 0 || endMs <= startMs) {
+            throw com.hangeoreum.api.shared.web.ApiException.badRequest("Subtitle requires 0 <= startMs < endMs");
+        }
         Subtitle subtitle = new Subtitle();
         subtitle.clipId = clipId;
         subtitle.lang = lang;

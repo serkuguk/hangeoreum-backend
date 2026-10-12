@@ -11,4 +11,15 @@ public interface DeckWordRepository extends JpaRepository<DeckWord, DeckWord.Pk>
     List<DeckWord> findByDeckId(UUID deckId);
 
     long countByDeckId(UUID deckId);
+
+    interface DeckCount {
+        UUID getDeckId();
+        long getWordCount();
+    }
+
+    @org.springframework.data.jpa.repository.Query("""
+            select dw.deckId as deckId, count(dw) as wordCount from DeckWord dw
+            where dw.deckId in :deckIds group by dw.deckId
+            """)
+    List<DeckCount> countByDeckIds(List<UUID> deckIds);
 }

@@ -52,8 +52,12 @@ public class LessonProgress {
 
     /** @return true if this completion is a repeat of an already completed lesson */
     public boolean complete(short score, short accuracy) {
+        if (score < 0 || score > 100 || accuracy < 0 || accuracy > 100) {
+            throw com.hangeoreum.api.shared.web.ApiException.badRequest("Score and accuracy must be 0..100");
+        }
         boolean repeat = status == ProgressStatus.COMPLETED;
         if (repeat) {
+            if (attempts == Short.MAX_VALUE) throw com.hangeoreum.api.shared.web.ApiException.conflict("Attempt limit reached");
             this.attempts++;
         }
         this.status = ProgressStatus.COMPLETED;

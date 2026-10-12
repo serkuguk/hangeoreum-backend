@@ -37,10 +37,21 @@ services:
       MEDIA_DIR: /app/uploads
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_FROM: ${SMTP_FROM:-noreply@hangeoreum.local}
     ports:
       - "8082:8082"
     volumes:
       - api_uploads:/app/uploads
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: hangeoreum-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
 
 volumes:
   postgres_data:

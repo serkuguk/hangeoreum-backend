@@ -20,10 +20,12 @@ import java.util.UUID;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class UserSettings {
 
+    public static final short DEFAULT_DAILY_GOAL_XP = 20;
+
     @Id
     private UUID userId;
 
-    private short dailyGoalXp = 20;
+    private short dailyGoalXp = DEFAULT_DAILY_GOAL_XP;
 
     private boolean remindersEnabled = false;
 
@@ -56,7 +58,7 @@ public class UserSettings {
     public void update(short dailyGoalXp, boolean remindersEnabled, LocalTime reminderTime,
                        boolean soundEnabled, boolean autoplayAudio, boolean showRomanization,
                        double playbackSpeed, String theme) {
-        this.dailyGoalXp = dailyGoalXp;
+        setDailyGoalXp(dailyGoalXp);
         this.remindersEnabled = remindersEnabled;
         this.reminderTime = reminderTime;
         this.soundEnabled = soundEnabled;
@@ -69,8 +71,15 @@ public class UserSettings {
     }
 
     public void completeOnboarding(short dailyGoalXp, boolean remindersEnabled, LocalTime reminderTime) {
-        this.dailyGoalXp = dailyGoalXp;
+        setDailyGoalXp(dailyGoalXp);
         this.remindersEnabled = remindersEnabled;
         this.reminderTime = reminderTime;
+    }
+
+    private void setDailyGoalXp(short value) {
+        if (value != 10 && value != DEFAULT_DAILY_GOAL_XP && value != 50) {
+            throw com.hangeoreum.api.shared.web.ApiException.badRequest("Daily goal must be 10, 20 or 50 XP");
+        }
+        this.dailyGoalXp = value;
     }
 }

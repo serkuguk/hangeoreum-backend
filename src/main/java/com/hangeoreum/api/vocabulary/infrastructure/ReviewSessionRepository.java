@@ -7,7 +7,6 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -19,6 +18,4 @@ public interface ReviewSessionRepository extends JpaRepository<ReviewSession, UU
     @Query("select s from ReviewSession s where s.id = :id and s.userId = :userId")
     Optional<ReviewSession> findByIdAndUserIdForUpdate(@Param("id") UUID id, @Param("userId") UUID userId);
 
-    long countByUserIdAndStartedAtAfterAndModeIn(UUID userId, Instant after,
-                                                 java.util.Collection<com.hangeoreum.api.vocabulary.domain.ReviewMode> modes);
 }

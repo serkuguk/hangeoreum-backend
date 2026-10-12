@@ -1,6 +1,8 @@
 package com.hangeoreum.api.gamification.application;
 
 import com.hangeoreum.api.gamification.domain.DailyActivity;
+import com.hangeoreum.api.billing.domain.AccessPolicy;
+import com.hangeoreum.api.shared.web.ApiException;
 import com.hangeoreum.api.gamification.domain.Streak;
 import com.hangeoreum.api.gamification.domain.XpEvent;
 import com.hangeoreum.api.gamification.domain.XpSource;
@@ -8,7 +10,7 @@ import com.hangeoreum.api.gamification.infrastructure.DailyActivityRepository;
 import com.hangeoreum.api.gamification.infrastructure.StreakRepository;
 import com.hangeoreum.api.gamification.infrastructure.XpEventRepository;
 import com.hangeoreum.api.identity.domain.event.UserRegisteredEvent;
-import com.hangeoreum.api.identity.infrastructure.UserSettingsRepository;
+import com.hangeoreum.api.identity.application.IdentityQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -27,7 +29,7 @@ public class GrantXpService {
     private final XpEventRepository xpEventRepository;
     private final DailyActivityRepository dailyActivityRepository;
     private final StreakRepository streakRepository;
-    private final UserSettingsRepository userSettingsRepository;
+    private final IdentityQueryService identityQueryService;
     private final AchievementChecker achievementChecker;
 
     public record GrantResult(int xp, boolean goalReached, int streakCurrent) {
@@ -80,17 +82,33 @@ public class GrantXpService {
         return new GrantResult(totalXp, goalReached, streak.getCurrent());
     }
 
-    @Transactional(readOnly = true)
-    public long lessonsCompletedToday(UUID userId) {
-        return dailyActivityRepository.findByUserIdAndActivityDate(userId, LocalDate.now())
-                .map(DailyActivity::getLessonsCompleted)
-                .orElse((short) 0);
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void reserveLesson(UUID userId, boolean unlimited) {
+        DailyActivity activity = lockToday(userId);
+        if (!unlimited && !AccessPolicy.withinFreeLessonLimit(activity.getLessonReservations())) {
+            throw ApiException.forbidden("LIMIT_REACHED", "Daily free lesson limit reached");
+        }
+        activity.reserveLesson();
+    }
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void reserveGame(UUID userId, boolean unlimited) {
+        DailyActivity activity = lockToday(userId);
+        if (!unlimited && !AccessPolicy.withinFreeGameLimit(activity.getGameSessionsStarted())) {
+            throw ApiException.forbidden("LIMIT_REACHED", "Daily free game limit reached");
+        }
+        activity.reserveGame();
+    }
+
+    private DailyActivity lockToday(UUID userId) {
+        LocalDate today = LocalDate.now();
+        dailyActivityRepository.ensureToday(userId, today, goalXpOf(userId));
+        return dailyActivityRepository.findByUserIdAndActivityDateForUpdate(userId, today)
+                .orElseThrow(() -> new IllegalStateException("Daily activity was not created"));
     }
 
     private short goalXpOf(UUID userId) {
-        return userSettingsRepository.findById(userId)
-                .map(s -> s.getDailyGoalXp())
-                .orElse((short) 20);
+        return identityQueryService.dailyGoalXp(userId);
     }
 
     @EventListener
