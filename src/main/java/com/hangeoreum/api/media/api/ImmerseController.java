@@ -13,6 +13,9 @@ import jakarta.validation.constraints.Max;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
+import com.hangeoreum.api.shared.web.ApiException;
 import java.util.UUID;
 
 @Tag(name = "Immerse")
@@ -27,19 +30,37 @@ public class ImmerseController {
     private final LearningService learningService;
 
     @GetMapping("/feed")
-    public MediaService.FeedResponse feed(@RequestParam(required = false) String cursor,
+    public FeedResponse feed(@RequestParam(required = false) String cursor,
+                                          @RequestParam(required = false) UUID unitId,
                                           @RequestParam(defaultValue = "10") @Min(1) @Max(30) int size) {
         UUID userId = CurrentUser.id();
         accessService.requirePro(userId, Feature.IMMERSE);
-        return mediaService.getImmerseFeed(userId, currentUnitId(userId), cursor, size);
+        var context = selectUnits(learningService.getCourseProgress(userId), unitId);
+        var feed = mediaService.getImmerseFeed(userId,
+                context.selectedUnit() == null ? null : context.selectedUnit().id(), cursor, size);
+        return new FeedResponse(feed.content(), feed.nextCursor(), context.selectedUnit(), context.units());
     }
 
-    // ponytail: текущий юнит = первый с доступным уроком; у админов доступно всё → всегда первый юнит
-    private UUID currentUnitId(UUID userId) {
-        return learningService.getCourseMap(userId).units().stream()
-                .filter(u -> u.lessons().stream().anyMatch(l -> l.status() == LessonAvailability.Status.AVAILABLE))
-                .map(LearningService.UnitNode::id)
-                .findFirst().orElse(null);
+    public record UnitSummary(UUID id, String title, String description, short position) {}
+    public record FeedResponse(List<MediaService.ClipDto> content, String nextCursor,
+                               UnitSummary selectedUnit, List<UnitSummary> units) {}
+    record UnitSelection(UnitSummary selectedUnit, List<UnitSummary> units) {}
+
+    static UnitSelection selectUnits(LearningService.CourseMap course, UUID requested) {
+        List<UnitSummary> available = new ArrayList<>();
+        UnitSummary current = null;
+        for (var unit : course.units()) {
+            if (unit.lessons().isEmpty()) continue;
+            boolean completed = unit.lessons().stream()
+                    .allMatch(lesson -> lesson.status() == LessonAvailability.Status.COMPLETED);
+            var summary = new UnitSummary(unit.id(), unit.title(), unit.description(), unit.position());
+            if (completed || current == null) available.add(summary);
+            if (!completed && current == null) current = summary;
+        }
+        UnitSummary selected = current != null ? current : available.isEmpty() ? null : available.getLast();
+        if (requested != null) selected = available.stream().filter(unit -> unit.id().equals(requested))
+                .findFirst().orElseThrow(() -> ApiException.forbidden("UNIT_LOCKED", "Unit is not available"));
+        return new UnitSelection(selected, List.copyOf(available));
     }
 
     @PostMapping("/{clipId}/view")

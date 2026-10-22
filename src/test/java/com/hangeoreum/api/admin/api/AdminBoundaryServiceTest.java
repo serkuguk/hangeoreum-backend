@@ -80,7 +80,7 @@ class AdminBoundaryServiceTest {
         MediaService media = mock(MediaService.class);
         SubtitleRepository subtitles = mock(SubtitleRepository.class);
         var service = new MediaAdministrationService(mock(NativeSpeakerRepository.class), mock(MediaClipRepository.class),
-                subtitles, media, mock(MediaStorage.class));
+                subtitles, media, mock(MediaStorage.class), mock(com.hangeoreum.api.learning.application.LearningQueryService.class));
         UUID id = UUID.randomUUID();
         MediaClip clip = MediaClip.create(ClipKind.IMMERSE, null, null);
         when(media.lockClip(id)).thenReturn(clip);
@@ -89,3 +89,4 @@ class AdminBoundaryServiceTest {
         verify(subtitles).countByClipId(id);
     }
 }
+

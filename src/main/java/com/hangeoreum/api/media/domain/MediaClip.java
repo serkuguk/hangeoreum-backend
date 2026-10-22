@@ -35,6 +35,14 @@ public class MediaClip {
 
     @Setter
     private UUID unitId;
+    @Setter
+    private String title;
+    private int position;
+
+    public void setPosition(int position) {
+        if (position < 0) throw ApiException.badRequest("Position must be nonnegative");
+        this.position = position;
+    }
 
     @Setter
     private String videoUrl;
@@ -66,6 +74,10 @@ public class MediaClip {
 
     /** Invariant: a clip can only be published with a video and at least one subtitle line. */
     public void publish(long subtitleCount) {
+        if (kind == ClipKind.IMMERSE && (unitId == null || title == null || title.isBlank()
+                || videoUrl == null || videoUrl.isBlank())) {
+            throw ApiException.conflict("Immersion requires a unit, title and video");
+        }
         if (videoUrl == null && audioUrl == null) {
             throw ApiException.conflict("Clip has no video/audio");
         }

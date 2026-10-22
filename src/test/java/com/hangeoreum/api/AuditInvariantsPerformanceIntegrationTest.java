@@ -120,25 +120,37 @@ class AuditInvariantsPerformanceIntegrationTest {
     @Test
     void immerseSqlCountIsConstantAndPreservesSubtitleOrderAndEmptyClips() {
         UUID userId = newUser().getId();
+        UUID course = UUID.randomUUID();
+        UUID unit = UUID.randomUUID();
+        jdbc.update("insert into courses(id,title) values (?, 'Practice')", course);
+        jdbc.update("insert into units(id,course_id,position,title) values (?,?,0,'Unit')", unit, course);
         UUID first = UUID.randomUUID();
         for (int i = 0; i < 5; i++) {
             UUID clip = i == 0 ? first : UUID.randomUUID();
-            jdbc.update("insert into media_clips(id,kind,video_url,is_published,created_at) values (?, 'IMMERSE', '/test', true, ?)",
-                    clip, java.sql.Timestamp.from(Instant.parse("2026-10-12T12:00:00Z").minusSeconds(i)));
+            jdbc.update("insert into media_clips(id,kind,video_url,is_published,created_at,unit_id,position) values (?, 'IMMERSE', '/test', true, ?,?,?)",
+                    clip, java.sql.Timestamp.from(Instant.parse("2026-10-12T12:00:00Z").minusSeconds(i)), unit, i);
         }
         jdbc.update("insert into subtitles(clip_id,lang,position,text,start_ms,end_ms) values (?, 'ko', 2, 'second', 1, 2), (?, 'ko', 1, 'first', 0, 1)", first, first);
         var statistics = emf.unwrap(SessionFactory.class).getStatistics();
         statistics.clear();
-        media.getImmerseFeed(userId, null, null, 1);
+        media.getImmerseFeed(userId, unit, null, 1);
         long oneClip = statistics.getPrepareStatementCount();
         statistics.clear();
-        var feed = media.getImmerseFeed(userId, null, null, 5);
+        var feed = media.getImmerseFeed(userId, unit, null, 5);
         assertEquals(oneClip, statistics.getPrepareStatementCount());
         assertEquals(3, oneClip);
         assertEquals(5, feed.content().size());
         assertEquals(first, feed.content().getFirst().id());
         assertEquals(List.of("first", "second"), feed.content().getFirst().subtitles().stream().map(MediaService.SubtitleDto::text).toList());
         assertTrue(feed.content().get(1).subtitles().isEmpty());
+        assertNull(feed.nextCursor());
+        var firstPage = media.getImmerseFeed(userId, unit, null, 2);
+        var secondPage = media.getImmerseFeed(userId, unit, firstPage.nextCursor(), 2);
+        assertEquals(feed.content().subList(2, 4), secondPage.content());
+        assertThrows(com.hangeoreum.api.shared.web.ApiException.class,
+                () -> media.getImmerseFeed(userId, UUID.randomUUID(), firstPage.nextCursor(), 2));
+        assertTrue(media.getImmerseFeed(userId, null, null, 5).content().isEmpty());
+        assertTrue(media.getImmerseFeed(userId, UUID.randomUUID(), null, 5).content().isEmpty());
     }
 
     @Test
@@ -161,6 +173,40 @@ class AuditInvariantsPerformanceIntegrationTest {
         assertEquals(first, decks.getFirst().id());
         assertEquals(1, decks.getFirst().wordCount());
         assertTrue(decks.stream().skip(1).allMatch(deck -> deck.wordCount() == 0));
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void immerseUsesActualAdminProgressAndProtectsFutureUnits() throws Exception {
+        User user = newUser();
+        jdbc.update("update users set role='USER' where role='ADMIN'");
+        jdbc.update("update users set role='ADMIN' where id=?", user.getId());
+        jdbc.update("update courses set is_published=false");
+        String token = "Bearer " + auth.issueTokens(user).accessToken();
+        mvc.perform(get("/api/v1/immerse/feed").header("Authorization", token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.units").isEmpty())
+                .andExpect(jsonPath("$.selectedUnit").doesNotExist());
+        UUID course = UUID.randomUUID(), first = UUID.randomUUID(), second = UUID.randomUUID();
+        UUID firstLesson = UUID.randomUUID(), secondLesson = UUID.randomUUID();
+        jdbc.update("insert into courses(id,title,is_published) values (?,'Course',true)", course);
+        jdbc.update("insert into units(id,course_id,position,title,description,is_published) values (?,?,0,'First','Greeting',true),(?,?,1,'Second','Travel',true)",
+                first, course, second, course);
+        jdbc.update("insert into lessons(id,unit_id,position,title,is_published) values (?,?,0,'First',true),(?,?,0,'Second',true)",
+                firstLesson, first, secondLesson, second);
+        mvc.perform(get("/api/v1/immerse/feed").header("Authorization", token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.selectedUnit.id").value(first.toString()))
+                .andExpect(jsonPath("$.content").isEmpty()).andExpect(jsonPath("$.units.length()").value(1));
+        mvc.perform(get("/api/v1/immerse/feed").param("unitId",second.toString()).header("Authorization", token))
+                .andExpect(status().isForbidden());
+        jdbc.update("insert into lesson_progress(user_id,lesson_id,status) values (?,?,'COMPLETED')",user.getId(),firstLesson);
+        mvc.perform(get("/api/v1/immerse/feed").header("Authorization", token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.selectedUnit.id").value(second.toString()))
+                .andExpect(jsonPath("$.units.length()").value(2));
+        mvc.perform(get("/api/v1/immerse/feed").param("unitId",first.toString()).header("Authorization", token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.selectedUnit.id").value(first.toString()));
+        jdbc.update("insert into lesson_progress(user_id,lesson_id,status) values (?,?,'COMPLETED')",user.getId(),secondLesson);
+        mvc.perform(get("/api/v1/immerse/feed").header("Authorization", token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.selectedUnit.id").value(second.toString()));
     }
 
     private User newUser() {

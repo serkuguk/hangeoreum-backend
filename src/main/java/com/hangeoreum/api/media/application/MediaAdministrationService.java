@@ -28,6 +28,7 @@ public class MediaAdministrationService {
     private final SubtitleRepository subtitleRepository;
     private final MediaService mediaService;
     private final MediaStorage mediaStorage;
+    private final com.hangeoreum.api.learning.application.LearningQueryService learningQueryService;
 
     // ---- speakers ----
 
@@ -59,7 +60,8 @@ public class MediaAdministrationService {
     // ---- clips ----
 
     public record ClipRequest(@NotNull ClipKind kind, UUID speakerId, UUID wordId, UUID unitId,
-                              @jakarta.validation.constraints.PositiveOrZero Integer durationMs) {
+                              @jakarta.validation.constraints.PositiveOrZero Integer durationMs,
+                              String title, @jakarta.validation.constraints.PositiveOrZero Integer position) {
     }
 
     @Transactional(readOnly = true)
@@ -71,11 +73,14 @@ public class MediaAdministrationService {
         MediaClip clip = MediaClip.create(r.kind(), r.speakerId(), r.wordId());
         clip.setDurationMs(r.durationMs());
         clip.setUnitId(r.unitId());
+        clip.setTitle(r.title());
+        if (r.position() != null) clip.setPosition(r.position());
+        if (r.unitId() != null) learningQueryService.requireUnit(r.unitId());
         return clipRepository.save(clip);
     }
 
     public MediaClip updateClip(UUID id, @Valid ClipRequest r) {
-        return mediaService.updateClip(id, r.kind(), r.speakerId(), r.wordId(), r.unitId(), r.durationMs());
+        return mediaService.updateClip(id, r.kind(), r.speakerId(), r.wordId(), r.unitId(), r.durationMs(), r.title(), r.position());
     }
 
     public void deleteClip(UUID id) {
@@ -101,6 +106,7 @@ public class MediaAdministrationService {
     public MediaClip publishClip(UUID id, PublishRequest r) {
         MediaClip clip = mediaService.lockClip(id);
         if (r.isPublished()) {
+            if (clip.getUnitId() != null) learningQueryService.requireUnit(clip.getUnitId());
             clip.publish(subtitleRepository.countByClipId(id));
         } else {
             clip.unpublish();
@@ -122,7 +128,8 @@ public class MediaAdministrationService {
     }
 
     public List<Subtitle> putSubtitles(UUID id, List<@Valid SubtitleRequest> lines) {
-        requireClip(id);
+        MediaClip clip = mediaService.lockClip(id);
+        if (clip.isPublished()) clip.publish(lines.size());
         subtitleRepository.deleteByClipId(id);
         subtitleRepository.flush(); // deletes до inserts, иначе UNIQUE(clip_id,lang,position) на повторном сохранении
         return lines.stream()

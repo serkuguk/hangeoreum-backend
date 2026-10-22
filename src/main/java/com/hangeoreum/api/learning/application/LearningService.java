@@ -157,6 +157,15 @@ public class LearningService {
 
     @Transactional(readOnly = true)
     public CourseMap getCourseMap(UUID userId) {
+        return getCourseMap(userId, true);
+    }
+
+    @Transactional(readOnly = true)
+    public CourseMap getCourseProgress(UUID userId) {
+        return getCourseMap(userId, false);
+    }
+
+    private CourseMap getCourseMap(UUID userId, boolean adminAccess) {
         Course course = courseRepository.findFirstByIsPublishedTrueOrderByCreatedAtAsc().orElse(null);
         if (course == null) {
             // no published course yet — empty map instead of 404 (dashboard shares this call)
@@ -180,7 +189,7 @@ public class LearningService {
                 LessonAvailability.compute(orderedIds, progressByLesson.keySet());
 
         boolean isPro = accessService.isPro(userId);
-        boolean isAdmin = accessService.isAdmin(userId);
+        boolean isAdmin = adminAccess && accessService.isAdmin(userId);
         List<UnitNode> unitNodes = units.stream()
                 .map(unit -> new UnitNode(unit.getId(), unit.getTitle(), unit.getDescription(), unit.getColor(),
                         unit.getPosition(),

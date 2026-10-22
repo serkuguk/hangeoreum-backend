@@ -18,6 +18,13 @@ public class LearningQueryService {
     private final UserLetterProgressRepository userLetterProgressRepository;
     private final com.hangeoreum.api.learning.infrastructure.StoryRepository storyRepository;
 
+    private final com.hangeoreum.api.learning.infrastructure.UnitRepository unitRepository;
+
+    @Transactional(readOnly = true)
+    public void requireUnit(UUID id) {
+        if (!unitRepository.existsById(id)) throw com.hangeoreum.api.shared.web.ApiException.notFound("Unit");
+    }
+
     @Transactional(readOnly = true)
     public boolean usesStoryClip(UUID clipId) {
         return storyRepository.existsByClipId(clipId);
