@@ -41,7 +41,7 @@ public class MediaService {
     }
 
     @Transactional
-    public MediaClip updateClip(UUID id, ClipKind kind, UUID speakerId, UUID wordId, Integer durationMs) {
+    public MediaClip updateClip(UUID id, ClipKind kind, UUID speakerId, UUID wordId, UUID unitId, Integer durationMs) {
         MediaClip clip = lockClip(id);
         if (kind != ClipKind.STORY && learningQueryService.usesStoryClip(id)) {
             throw ApiException.conflict("Clip is used by a story");
@@ -49,6 +49,7 @@ public class MediaService {
         clip.setKind(kind);
         clip.setSpeakerId(speakerId);
         clip.setWordId(wordId);
+        clip.setUnitId(unitId);
         clip.setDurationMs(durationMs);
         return clip;
     }
@@ -83,7 +84,7 @@ public class MediaService {
     }
 
     @Transactional(readOnly = true)
-    public FeedResponse getImmerseFeed(UUID userId, String cursor, int size) {
+    public FeedResponse getImmerseFeed(UUID userId, UUID unitId, String cursor, int size) {
         Instant cursorCreatedAt = null;
         UUID cursorId = null;
         if (cursor != null && !cursor.isBlank()) {
@@ -97,8 +98,11 @@ public class MediaService {
         }
         // ponytail: plain reverse-chronological cursor; "unwatched first" is exposed via the
         // watched flag for the client to skip, revisit if product insists on server-side ordering
-        List<MediaClip> clips = clipRepository.feed(ClipKind.IMMERSE, cursorCreatedAt, cursorId,
-                PageRequest.of(0, size));
+        // у юнита ещё нет видео — показываем общую ленту
+        boolean byUnit = unitId != null && clipRepository.existsByKindAndUnitIdAndIsPublishedTrue(ClipKind.IMMERSE, unitId);
+        List<MediaClip> clips = byUnit
+                ? clipRepository.feedByUnit(ClipKind.IMMERSE, unitId, cursorCreatedAt, cursorId, PageRequest.of(0, size))
+                : clipRepository.feed(ClipKind.IMMERSE, cursorCreatedAt, cursorId, PageRequest.of(0, size));
         List<UUID> clipIds = clips.stream().map(MediaClip::getId).toList();
         Map<UUID, List<Subtitle>> subtitles = subtitleRepository.findByClipIdInOrderByLangAscPositionAsc(clipIds)
                 .stream().collect(Collectors.groupingBy(Subtitle::getClipId));

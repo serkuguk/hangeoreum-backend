@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Hangeoreum API" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="com.hangeoreum.api.HangeoreumApiApplication" />
+    <module name="hangeoreum-api" />
+    <method v="2" />
+  </configuration>
+</component>

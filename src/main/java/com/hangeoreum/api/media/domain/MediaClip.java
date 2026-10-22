@@ -34,6 +34,9 @@ public class MediaClip {
     private UUID wordId;
 
     @Setter
+    private UUID unitId;
+
+    @Setter
     private String videoUrl;
 
     @Setter
