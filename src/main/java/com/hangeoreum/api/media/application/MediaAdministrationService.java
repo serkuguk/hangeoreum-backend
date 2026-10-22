@@ -58,7 +58,7 @@ public class MediaAdministrationService {
 
     // ---- clips ----
 
-    public record ClipRequest(@NotNull ClipKind kind, UUID speakerId, UUID wordId,
+    public record ClipRequest(@NotNull ClipKind kind, UUID speakerId, UUID wordId, UUID unitId,
                               @jakarta.validation.constraints.PositiveOrZero Integer durationMs) {
     }
 
@@ -70,11 +70,12 @@ public class MediaAdministrationService {
     public MediaClip createClip(@Valid ClipRequest r) {
         MediaClip clip = MediaClip.create(r.kind(), r.speakerId(), r.wordId());
         clip.setDurationMs(r.durationMs());
+        clip.setUnitId(r.unitId());
         return clipRepository.save(clip);
     }
 
     public MediaClip updateClip(UUID id, @Valid ClipRequest r) {
-        return mediaService.updateClip(id, r.kind(), r.speakerId(), r.wordId(), r.durationMs());
+        return mediaService.updateClip(id, r.kind(), r.speakerId(), r.wordId(), r.unitId(), r.durationMs());
     }
 
     public void deleteClip(UUID id) {

@@ -129,10 +129,10 @@ class AuditInvariantsPerformanceIntegrationTest {
         jdbc.update("insert into subtitles(clip_id,lang,position,text,start_ms,end_ms) values (?, 'ko', 2, 'second', 1, 2), (?, 'ko', 1, 'first', 0, 1)", first, first);
         var statistics = emf.unwrap(SessionFactory.class).getStatistics();
         statistics.clear();
-        media.getImmerseFeed(userId, null, 1);
+        media.getImmerseFeed(userId, null, null, 1);
         long oneClip = statistics.getPrepareStatementCount();
         statistics.clear();
-        var feed = media.getImmerseFeed(userId, null, 5);
+        var feed = media.getImmerseFeed(userId, null, null, 5);
         assertEquals(oneClip, statistics.getPrepareStatementCount());
         assertEquals(3, oneClip);
         assertEquals(5, feed.content().size());
