@@ -33,6 +33,8 @@ public class LearningService {
     private final ExerciseRepository exerciseRepository;
     private final LessonProgressRepository progressRepository;
     private final LessonAttemptRepository attemptRepository;
+    private final LessonSessionRepository sessionRepository;
+    private final LessonExerciseResultRepository resultRepository;
     private final StoryRepository storyRepository;
     private final StoryLineRepository storyLineRepository;
     private final AlphabetLetterRepository letterRepository;
@@ -211,6 +213,100 @@ public class LearningService {
     }
 
     public record LessonDto(UUID id, String title, LessonType type, short xpReward, List<ExerciseDto> exercises) {
+    }
+
+    public record StartSessionRequest(@jakarta.validation.constraints.NotNull UUID sessionId) {}
+    public record ExerciseResultRequest(
+            @jakarta.validation.constraints.NotNull @jakarta.validation.constraints.Min(1)
+            @jakarta.validation.constraints.Max(LessonExerciseResult.MAX_SEQUENCE) Integer sequence,
+            @jakarta.validation.constraints.NotNull UUID exerciseId,
+            @jakarta.validation.constraints.NotNull Boolean correct,
+            @jakarta.validation.constraints.Size(max = LessonExerciseResult.MAX_EXPECTED_LENGTH) String expected,
+            @jakarta.validation.constraints.Min(0) @jakarta.validation.constraints.Max(LessonExerciseResult.MAX_MISTAKES) Integer mistakes) {}
+    public record SessionAccepted(UUID sessionId, Instant startedAt) {}
+    public record ResultAccepted(int sequence, Instant receivedAt) {}
+    public record TrackingWrite<T>(boolean created, T value) {}
+
+    @Transactional
+    public TrackingWrite<SessionAccepted> startSession(UUID userId, UUID lessonId, UUID sessionId) {
+        LessonSession existing = sessionRepository.findById(sessionId).orElse(null);
+        if (existing != null && !existing.matches(userId, lessonId)) {
+            throw ApiException.conflict("Session does not match this request");
+        }
+        Lesson lesson = requireLessonAccess(userId, lessonId);
+        if (lesson.getType() == LessonType.STORY) accessService.requirePro(userId, Feature.STORY);
+        if (existing != null) return sessionAccepted(false, existing);
+        attemptRepository.findById(sessionId).ifPresent(receipt -> {
+            if (!receipt.getUserId().equals(userId) || !receipt.getLessonId().equals(lessonId)) {
+                throw ApiException.conflict("Completion receipt does not match this session");
+            }
+        });
+        List<Exercise> exercises = lesson.getType() == LessonType.STORY ? List.of()
+                : exerciseRepository.findByLessonIdOrderByPositionAsc(lessonId);
+        if (lesson.getType() == LessonType.STORY) {
+            storyRepository.findByLessonId(lessonId).orElseThrow(() -> ApiException.notFound("Story"));
+        } else if (exercises.isEmpty()) {
+            throw ApiException.conflict("LESSON_EMPTY");
+        }
+        if (exercises.size() > LessonSession.MAX_EXERCISES) throw ApiException.badRequest("Too many snapshot exercises");
+        List<LessonSession.ExerciseSnapshot> snapshot = exercises.stream()
+                .map(exercise -> new LessonSession.ExerciseSnapshot(exercise.getId(), exercise.getKind(),
+                        exercise.getPosition(), snapshotContext(exercise))).toList();
+        UUID courseId = unitRepository.findById(lesson.getUnitId()).orElseThrow(() -> ApiException.notFound("Unit")).getCourseId();
+        int created = sessionRepository.claim(sessionId, userId, lessonId, courseId, lesson.getTitle(),
+                lesson.getType().name(), writeValue(snapshot), Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        LessonSession stored = sessionRepository.findById(sessionId).orElseThrow();
+        if (!stored.matches(userId, lessonId)) throw ApiException.conflict("Session does not match this request");
+        return sessionAccepted(created == 1, stored);
+    }
+
+    @Transactional
+    public TrackingWrite<ResultAccepted> recordExerciseResult(UUID userId, UUID lessonId, UUID sessionId,
+                                                              @jakarta.validation.Valid ExerciseResultRequest request) {
+        LessonSession session = sessionRepository.findByIdForUpdate(sessionId)
+                .filter(value -> value.matches(userId, lessonId))
+                .orElseThrow(() -> ApiException.notFound("Session"));
+        requireLessonAccess(userId, lessonId);
+        if (session.getLessonType() == LessonType.STORY) accessService.requirePro(userId, Feature.STORY);
+        LessonExerciseResult existing = resultRepository.findBySessionIdAndSequence(sessionId, request.sequence()).orElse(null);
+        if (existing != null) {
+            if (!existing.matches(request.exerciseId(), request.correct(), request.expected(), request.mistakes())) {
+                throw ApiException.conflict("Result does not match this sequence");
+            }
+            return new TrackingWrite<>(false, new ResultAccepted(existing.getSequence(), existing.getReceivedAt()));
+        }
+        LessonSession.ExerciseSnapshot exercise = session.getExercises().stream()
+                .filter(value -> value.exerciseId().equals(request.exerciseId())).findFirst()
+                .orElseThrow(() -> ApiException.notFound("Exercise"));
+        if (request.mistakes() != null && exercise.kind() != ExerciseKind.MATCH_PAIRS) {
+            throw ApiException.badRequest("Mistakes are only supported for MATCH_PAIRS");
+        }
+        Instant receivedAt = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        resultRepository.save(LessonExerciseResult.received(sessionId, request.sequence(), request.exerciseId(),
+                request.correct(), request.expected(), request.mistakes(), receivedAt));
+        session.recordReceivedAt(receivedAt);
+        return new TrackingWrite<>(true, new ResultAccepted(request.sequence(), receivedAt));
+    }
+
+    private TrackingWrite<SessionAccepted> sessionAccepted(boolean created, LessonSession session) {
+        return new TrackingWrite<>(created, new SessionAccepted(session.getId(), session.getStartedAt()));
+    }
+
+    private String snapshotContext(Exercise exercise) {
+        var payload = objectMapper.readTree(exercise.getPayload());
+        String context = switch (exercise.getKind()) {
+            case CHOICE -> payload.path("question").asText("");
+            case LISTEN_CHOICE -> payload.path("text").asText("");
+            case WORD_ORDER, TYPE_WORD -> payload.path("translation").asText("");
+            case FILL_BLANK -> payload.path("sentence").asText("");
+            case MATCH_PAIRS -> {
+                List<String> labels = new ArrayList<>();
+                for (var pair : payload.path("pairs")) labels.add(pair.path("left").asText(""));
+                yield String.join(" · ", labels);
+            }
+        };
+        if (context.length() > LessonSession.MAX_CONTEXT_LENGTH) throw ApiException.badRequest("Exercise context is too long");
+        return context;
     }
 
     @Transactional(readOnly = true)

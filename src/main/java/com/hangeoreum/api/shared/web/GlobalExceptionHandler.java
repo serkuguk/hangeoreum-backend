@@ -60,7 +60,9 @@ public class GlobalExceptionHandler {
     }
     @ExceptionHandler({org.springframework.web.method.annotation.HandlerMethodValidationException.class,
             jakarta.validation.ConstraintViolationException.class,
-            org.springframework.http.converter.HttpMessageNotReadableException.class})
+            org.springframework.http.converter.HttpMessageNotReadableException.class,
+            org.springframework.web.bind.MissingServletRequestParameterException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
     ResponseEntity<ErrorResponse> invalidInput(Exception e) {
         return apiException(ApiException.badRequest("Invalid request values"));
     }

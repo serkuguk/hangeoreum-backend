@@ -56,4 +56,7 @@ public interface UserWordRepository extends JpaRepository<UserWord, UUID> {
             """)
     Page<UserWord> search(@Param("userId") UUID userId, @Param("pattern") String pattern,
                           @Param("level") Short level, @Param("topicId") UUID topicId, Pageable pageable);
+    @EntityGraph(attributePaths = "word")
+    Page<UserWord> findByUserIdAndIsDifficultTrue(UUID userId, Pageable pageable);
+
 }

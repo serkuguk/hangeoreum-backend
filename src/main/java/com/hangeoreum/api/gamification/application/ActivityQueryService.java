@@ -35,4 +35,26 @@ public class ActivityQueryService {
 
     public record DailyMetrics(long activeUsers, long lessonsCompleted) {}
     public record StreakRisk(UUID userId, int current) {}
+
+    public MonitoringActivity monitoringActivity(UUID userId) {
+        LocalDate today = LocalDate.now();
+        var byDate = new java.util.HashMap<LocalDate, com.hangeoreum.api.gamification.domain.DailyActivity>();
+        dailyActivityRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, today.minusDays(29), today)
+                .forEach(day -> byDate.put(day.getActivityDate(), day));
+        List<ActivityDay> days = new java.util.ArrayList<>();
+        for (int i = 29; i >= 0; i--) {
+            LocalDate date = today.minusDays(i);
+            var day = byDate.get(date);
+            days.add(new ActivityDay(date, day == null ? 0 : day.getXpEarned(),
+                    day == null ? 0 : day.getLessonsCompleted(), day == null ? 0 : day.getReviewsDone(),
+                    day == null ? null : day.getGoalXp()));
+        }
+        var streak = streakRepository.findById(userId).orElse(null);
+        return new MonitoringActivity(today, List.copyOf(days), streak == null ? 0 : streak.getCurrent(),
+                streak == null ? 0 : streak.getLongest(), streak == null ? null : streak.getLastActiveDate());
+    }
+
+    public record ActivityDay(LocalDate date, int xpEarned, int lessonsCompleted, int reviewsDone, Short goalXp) {}
+    public record MonitoringActivity(LocalDate serverDate, List<ActivityDay> days, int currentStreak,
+                                      int longestStreak, LocalDate lastActiveDate) {}
 }
