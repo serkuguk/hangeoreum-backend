@@ -298,7 +298,9 @@ class DatabaseHardeningIntegrationTest {
             statement.executeUpdate("insert into users(id,name,email) values ('00000000-0000-0000-0000-000000000001','Upgrade','Upgrade@example.com')");
             statement.executeUpdate("insert into payments(user_id,amount_cents) values ('00000000-0000-0000-0000-000000000001',100)");
         }
-        assertEquals(7, Flyway.configure().dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword()).load().migrate().migrationsExecuted);
+        Flyway upgrade = Flyway.configure().dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword()).load();
+        int pendingMigrations = upgrade.info().pending().length;
+        assertEquals(pendingMigrations, upgrade.migrate().migrationsExecuted);
         try (var connection = java.sql.DriverManager.getConnection(url, POSTGRES.getUsername(), POSTGRES.getPassword());
              var statement = connection.createStatement();
              var rows = statement.executeQuery("select count(*) from payments where provider='STRIPE' and amount_cents=100")) {
