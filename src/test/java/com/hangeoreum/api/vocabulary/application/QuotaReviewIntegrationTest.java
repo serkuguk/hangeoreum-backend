@@ -121,6 +121,28 @@ class QuotaReviewIntegrationTest {
     }
 
     @Test
+    void gameSessionCanFinishWithFewerAnswersThanIssuedCards() {
+        UUID user = user(jdbc);
+        word(jdbc, user);
+        word(jdbc, user);
+        var session = reviews.startSession(user, ReviewMode.MATCH, 2, null, false);
+        UUID answered = session.cards().getFirst().word().id();
+        reviews.submitAnswers(user, session.id(), List.of(new ReviewService.AnswerCommand(answered, 5)));
+        var finished = reviews.finishSession(user, session.id());
+        assertEquals(1, finished.total());
+        assertEquals(1, finished.correct());
+    }
+
+    @Test
+    void gameSessionTopsUpWithNotDueWordsButQuickReviewStillRequiresDueOnes() {
+        UUID user = user(jdbc);
+        word(jdbc, user);
+        jdbc.update("update user_words set due_date = current_date + 5 where user_id = ?", user);
+        assertThrows(ApiException.class, () -> reviews.startSession(user, ReviewMode.QUICK, 5, null, false));
+        assertEquals(1, reviews.startSession(user, ReviewMode.LISTEN, 5, null, false).cards().size());
+    }
+
+    @Test
     void typedEventKeepsTheExistingWireValues() {
         var event = new LessonCompleted(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 10, LessonCompleted.XpSource.STORY);
         String json = mapper.writeValueAsString(event);

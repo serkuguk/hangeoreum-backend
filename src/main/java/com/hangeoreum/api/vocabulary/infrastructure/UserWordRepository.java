@@ -30,6 +30,9 @@ public interface UserWordRepository extends JpaRepository<UserWord, UUID> {
     List<UserWord> findByUserIdAndDueDateLessThanEqualOrderByDueDateAsc(UUID userId, LocalDate date, Pageable pageable);
 
     @EntityGraph(attributePaths = "word")
+    List<UserWord> findByUserIdOrderByDueDateAsc(UUID userId, Pageable pageable);
+
+    @EntityGraph(attributePaths = "word")
     List<UserWord> findByUserIdAndIsDifficultTrueOrderByEaseFactorAsc(UUID userId, Pageable pageable);
 
     @EntityGraph(attributePaths = "word")
