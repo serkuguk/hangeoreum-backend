@@ -1,6 +1,6 @@
 package com.hangeoreum.api.identity.domain;
 
-import com.hangeoreum.api.shared.web.ApiException;
+import com.hangeoreum.api.shared.domain.DomainException;
 import org.junit.jupiter.api.Test;
 import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
@@ -17,8 +17,8 @@ class UserSettingsTest {
             assertEquals(goal, settings.getDailyGoalXp());
         }
         for (short goal : new short[]{-1, 0, 15, 51, Short.MAX_VALUE}) {
-            assertThrows(ApiException.class, () -> settings.completeOnboarding(goal, true, null));
-            assertThrows(ApiException.class, () -> settings.update(goal, true, null, false, false, false, 1.0, null));
+            assertThrows(DomainException.class, () -> settings.completeOnboarding(goal, true, null));
+            assertThrows(DomainException.class, () -> settings.update(goal, true, null, false, false, false, 1.0, null));
             assertEquals(50, settings.getDailyGoalXp());
             assertFalse(settings.isRemindersEnabled());
         }

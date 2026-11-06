@@ -1,5 +1,6 @@
 package com.hangeoreum.api.shared.web;
 
+import com.hangeoreum.api.shared.domain.DomainException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,14 @@ public class GlobalExceptionHandler {
     ResponseEntity<ErrorResponse> apiException(ApiException e) {
         return ResponseEntity.status(e.getStatus())
                 .body(new ErrorResponse(e.getCode(), e.getMessage(), e.getDetails()));
+    }
+
+    @ExceptionHandler(DomainException.class)
+    ResponseEntity<ErrorResponse> domainException(DomainException e) {
+        HttpStatus status = e.getCategory() == DomainException.Category.VALIDATION
+                ? HttpStatus.BAD_REQUEST : HttpStatus.CONFLICT;
+        return ResponseEntity.status(status)
+                .body(new ErrorResponse(e.getCategory().name(), e.getMessage(), Map.of()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

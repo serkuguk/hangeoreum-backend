@@ -24,6 +24,7 @@ public interface UserWordRepository extends JpaRepository<UserWord, UUID> {
     @Query("select uw from UserWord uw where uw.userId = :userId and uw.word.id = :wordId")
     Optional<UserWord> findByUserIdAndWordIdForUpdate(@Param("userId") UUID userId, @Param("wordId") UUID wordId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<UserWord> findByIdAndUserId(UUID id, UUID userId);
 
     @EntityGraph(attributePaths = "word")

@@ -132,15 +132,10 @@ public class CourseAdministrationService {
     public Lesson publishLesson(UUID id, PublishRequest r) {
         Lesson lesson = learningService.lockLesson(id);
         if (r.isPublished()) {
-            if (exerciseRepository.countByLessonId(id) == 0) {
-                throw ApiException.conflict("Lesson needs at least one exercise to be published");
-            }
-            boolean tipRequired = lesson.getType() == LessonType.GRAMMAR || lesson.getType() == LessonType.LESSON;
-            if (tipRequired && tipRepository.findByLessonId(id).isEmpty()) {
-                throw ApiException.conflict("Lesson of type " + lesson.getType() + " needs a tip to be published");
-            }
+            lesson.publish(exerciseRepository.countByLessonId(id), tipRepository.findByLessonId(id).isPresent());
+        } else {
+            lesson.unpublish();
         }
-        lesson.setPublished(r.isPublished());
         return lesson;
     }
 

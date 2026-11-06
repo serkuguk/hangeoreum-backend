@@ -2,7 +2,6 @@ package com.hangeoreum.api.vocabulary.application;
 
 import com.hangeoreum.api.shared.storage.MediaStorage;
 import com.hangeoreum.api.shared.web.ApiException;
-import com.hangeoreum.api.vocabulary.api.WordDto;
 import com.hangeoreum.api.vocabulary.domain.Topic;
 import com.hangeoreum.api.vocabulary.domain.Word;
 import com.hangeoreum.api.vocabulary.infrastructure.TopicRepository;

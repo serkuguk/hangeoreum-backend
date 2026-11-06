@@ -2,7 +2,6 @@ package com.hangeoreum.api.identity.application;
 
 import com.hangeoreum.api.billing.application.BillingService;
 import com.hangeoreum.api.billing.domain.Payment;
-import com.hangeoreum.api.identity.api.UserDto;
 import com.hangeoreum.api.identity.application.MeService;
 import com.hangeoreum.api.identity.domain.User;
 import com.hangeoreum.api.identity.domain.UserRole;

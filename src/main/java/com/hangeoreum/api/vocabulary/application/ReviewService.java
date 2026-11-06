@@ -4,7 +4,6 @@ import com.hangeoreum.api.billing.application.AccessService;
 import com.hangeoreum.api.gamification.application.GrantXpService;
 import com.hangeoreum.api.gamification.domain.XpSource;
 import com.hangeoreum.api.shared.web.ApiException;
-import com.hangeoreum.api.vocabulary.api.UserWordDto;
 import com.hangeoreum.api.vocabulary.domain.*;
 import com.hangeoreum.api.vocabulary.infrastructure.*;
 import lombok.RequiredArgsConstructor;

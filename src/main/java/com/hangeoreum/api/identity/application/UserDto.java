@@ -1,4 +1,4 @@
-package com.hangeoreum.api.identity.api;
+package com.hangeoreum.api.identity.application;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.hangeoreum.api.identity.domain.User;

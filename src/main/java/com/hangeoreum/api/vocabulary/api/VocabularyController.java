@@ -1,5 +1,7 @@
 package com.hangeoreum.api.vocabulary.api;
 
+import com.hangeoreum.api.vocabulary.application.UserWordDto;
+import com.hangeoreum.api.vocabulary.application.WordDto;
 import com.hangeoreum.api.shared.security.CurrentUser;
 import com.hangeoreum.api.vocabulary.application.VocabularyService;
 import io.swagger.v3.oas.annotations.tags.Tag;

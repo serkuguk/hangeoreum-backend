@@ -1,6 +1,6 @@
 package com.hangeoreum.api.admin.api;
 
-import com.hangeoreum.api.vocabulary.api.WordDto;
+import com.hangeoreum.api.vocabulary.application.WordDto;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import com.hangeoreum.api.vocabulary.application.VocabularyAdministrationService;

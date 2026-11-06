@@ -78,7 +78,7 @@ public class UserSettings {
 
     private void setDailyGoalXp(short value) {
         if (value != 10 && value != DEFAULT_DAILY_GOAL_XP && value != 50) {
-            throw com.hangeoreum.api.shared.web.ApiException.badRequest("Daily goal must be 10, 20 or 50 XP");
+            throw com.hangeoreum.api.shared.domain.DomainException.validation("Daily goal must be 10, 20 or 50 XP");
         }
         this.dailyGoalXp = value;
     }

@@ -26,7 +26,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -52,6 +53,31 @@ class RefreshTokenIntegrationTest {
     @Autowired UserRepository users;
     @Autowired JdbcTemplate jdbc;
     @MockitoBean PasswordResetMailSender mailSender;
+
+    @Test
+    void activeUserWithoutAnySubscriptionCanLoginReadOwnProfileAndRefreshButCannotAdminister() throws Exception {
+        String email = UUID.randomUUID() + "@example.com";
+        User user = auth.register("Free User", email, "password123").user();
+        assertEquals(0, jdbc.queryForObject("select count(*) from subscriptions where user_id = ?", Integer.class, user.getId()));
+        var login = mvc.perform(post("/api/v1/auth/login").contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email + "\",\"password\":\"password123\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.user.id").value(user.getId().toString()))
+                .andExpect(jsonPath("$.user.role").value("USER"))
+                .andExpect(jsonPath("$.user.isActive").value(true))
+                .andExpect(jsonPath("$.user.active").doesNotExist()).andReturn();
+        String accessToken = new tools.jackson.databind.ObjectMapper().readTree(login.getResponse().getContentAsString())
+                .get("accessToken").asText();
+        mvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(user.getId().toString()))
+                .andExpect(jsonPath("$.email").value(email)).andExpect(jsonPath("$.isActive").value(true));
+        Cookie refreshCookie = login.getResponse().getCookie("refresh_token");
+        mvc.perform(post("/api/v1/auth/refresh").cookie(refreshCookie))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.user.id").value(user.getId().toString()))
+                .andExpect(jsonPath("$.user.isActive").value(true));
+        mvc.perform(get("/api/v1/admin/users").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isForbidden());
+        assertEquals(0, jdbc.queryForObject("select count(*) from subscriptions where user_id = ?", Integer.class, user.getId()));
+    }
 
     @Test
     void concurrentRefreshCreatesExactlyOneSuccessor() throws Exception {

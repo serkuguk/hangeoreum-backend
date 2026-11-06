@@ -12,6 +12,7 @@ import com.hangeoreum.api.media.domain.MediaClip;
 import com.hangeoreum.api.media.infrastructure.*;
 import com.hangeoreum.api.shared.storage.MediaStorage;
 import com.hangeoreum.api.shared.web.ApiException;
+import com.hangeoreum.api.shared.domain.DomainException;
 import com.hangeoreum.api.vocabulary.application.VocabularyAdministrationService;
 import com.hangeoreum.api.vocabulary.domain.Word;
 import com.hangeoreum.api.vocabulary.infrastructure.*;
@@ -36,10 +37,10 @@ class AdminBoundaryServiceTest {
         UUID id = UUID.randomUUID();
         Lesson lesson = Lesson.create(UUID.randomUUID(), (short) 0, LessonType.LESSON, "lesson", (short) 10, true);
         when(learning.lockLesson(id)).thenReturn(lesson);
-        assertThrows(ApiException.class, () -> service.publishLesson(id, new CourseAdministrationService.PublishRequest(true)));
+        assertThrows(DomainException.class, () -> service.publishLesson(id, new CourseAdministrationService.PublishRequest(true)));
         when(exercises.countByLessonId(id)).thenReturn(1L);
         when(tips.findByLessonId(id)).thenReturn(Optional.empty());
-        assertThrows(ApiException.class, () -> service.publishLesson(id, new CourseAdministrationService.PublishRequest(true)));
+        assertThrows(DomainException.class, () -> service.publishLesson(id, new CourseAdministrationService.PublishRequest(true)));
         when(tips.findByLessonId(id)).thenReturn(Optional.of(LearningTip.create(id, "tip", "text", "[]")));
         assertTrue(service.publishLesson(id, new CourseAdministrationService.PublishRequest(true)).isPublished());
     }
@@ -49,7 +50,7 @@ class AdminBoundaryServiceTest {
         LessonRepository lessons = mock(LessonRepository.class);
         ExerciseRepository exercises = mock(ExerciseRepository.class);
         var service = new LessonBuilderService(lessons, exercises, mock(LearningTipRepository.class),
-                mock(VocabularyAdministrationService.class));
+                mock(VocabularyAdministrationService.class), mock(LearningService.class));
         UUID id = UUID.randomUUID();
         when(lessons.existsById(id)).thenReturn(true);
         assertThrows(ApiException.class, () -> service.createExercise(id, new LessonBuilderService.ExerciseRequest(
@@ -84,7 +85,7 @@ class AdminBoundaryServiceTest {
         UUID id = UUID.randomUUID();
         MediaClip clip = MediaClip.create(ClipKind.IMMERSE, null, null);
         when(media.lockClip(id)).thenReturn(clip);
-        assertThrows(ApiException.class, () -> service.publishClip(id, new MediaAdministrationService.PublishRequest(true)));
+        assertThrows(DomainException.class, () -> service.publishClip(id, new MediaAdministrationService.PublishRequest(true)));
         verify(media).lockClip(id);
         verify(subtitles).countByClipId(id);
     }

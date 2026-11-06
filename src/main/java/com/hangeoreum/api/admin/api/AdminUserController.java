@@ -1,6 +1,6 @@
 package com.hangeoreum.api.admin.api;
 
-import com.hangeoreum.api.identity.api.UserDto;
+import com.hangeoreum.api.identity.application.UserDto;
 import com.hangeoreum.api.shared.security.CurrentUser;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;

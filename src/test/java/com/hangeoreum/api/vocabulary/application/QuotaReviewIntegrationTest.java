@@ -16,6 +16,8 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -48,10 +50,58 @@ class QuotaReviewIntegrationTest {
 
     @Autowired JdbcTemplate jdbc;
     @Autowired ReviewService reviews;
+    @Autowired VocabularyService vocabulary;
+    @Autowired PlatformTransactionManager transactions;
     @Autowired LearningService learning;
     @Autowired GrantXpService xp;
     @Autowired ObjectMapper mapper;
     @MockitoBean OutboxDispatcher dispatcher;
+
+    @Test
+    void difficultChangeWaitsForReviewAndPreservesItsSrsStateAndOwnership() throws Exception {
+        UUID user = user(jdbc), word = word(jdbc, user);
+        UUID userWord = jdbc.queryForObject("select id from user_words where user_id = ? and word_id = ?", UUID.class, user, word);
+        var session = reviews.startSession(user, ReviewMode.QUICK, 1, null, false);
+        CountDownLatch reviewLocked = new CountDownLatch(1), releaseReview = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var review = executor.submit(() -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
+                reviews.submitAnswers(user, session.id(), List.of(new ReviewService.AnswerCommand(word, 5)));
+                reviewLocked.countDown();
+                assertDoesNotThrow(() -> assertTrue(releaseReview.await(10, TimeUnit.SECONDS)));
+            }));
+            try {
+                assertTrue(reviewLocked.await(5, TimeUnit.SECONDS));
+                var difficult = executor.submit(() -> vocabulary.setDifficult(user, userWord, true));
+                try {
+                    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                    boolean waiting = false;
+                    while (!waiting && System.nanoTime() < deadline) {
+                        waiting = Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from pg_stat_activity "
+                                + "where pid <> pg_backend_pid() and wait_event_type = 'Lock' "
+                                + "and lower(query) like 'select%user_words%')", Boolean.class));
+                    }
+                    assertTrue(waiting, "Difficult must lock before reading the review state");
+                } finally {
+                    releaseReview.countDown();
+                }
+                review.get(10, TimeUnit.SECONDS);
+                var result = difficult.get(10, TimeUnit.SECONDS);
+                assertTrue(result.isDifficult());
+                assertEquals(1, result.repetitions());
+                assertEquals(2.6, result.easeFactor(), 0.0001);
+                assertEquals(java.time.LocalDate.now().plusDays(1), result.dueDate());
+            } finally {
+                releaseReview.countDown();
+            }
+        }
+        var stored = jdbc.queryForMap("select repetitions, ease_factor, due_date, is_difficult from user_words where id = ?", userWord);
+        assertEquals(1, stored.get("repetitions"));
+        assertEquals(2.6, ((Number) stored.get("ease_factor")).doubleValue(), 0.0001);
+        assertEquals(java.sql.Date.valueOf(java.time.LocalDate.now().plusDays(1)), stored.get("due_date"));
+        assertEquals(true, stored.get("is_difficult"));
+        assertCode("NOT_FOUND", () -> vocabulary.setDifficult(user(jdbc), userWord, false));
+        assertEquals(true, jdbc.queryForObject("select is_difficult from user_words where id = ?", Boolean.class, userWord));
+    }
 
     @Test
     void oneRemainingLessonIsReservedAtomicallyAndReceiptReplayAndXpDoNotReserveAgain() throws Exception {
@@ -113,7 +163,8 @@ class QuotaReviewIntegrationTest {
         assertEquals(1, finished.total());
         assertEquals(1, finished.xp());
         assertEquals(finished, reviews.finishSession(user, session.id()));
-        assertCode("CONFLICT", () -> reviews.submitAnswers(user, session.id(), List.of(new ReviewService.AnswerCommand(issued, 5))));
+        assertEquals("Review session is already finished", assertThrows(com.hangeoreum.api.shared.domain.DomainException.class,
+                () -> reviews.submitAnswers(user, session.id(), List.of(new ReviewService.AnswerCommand(issued, 5)))).getMessage());
         assertEquals(1, jdbc.queryForObject("select repetitions from user_words where user_id = ? and word_id = ?",
                 Integer.class, user, issued));
         assertEquals(0, jdbc.queryForObject("select repetitions from user_words where user_id = ? and word_id = ?",

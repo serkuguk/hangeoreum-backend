@@ -1,4 +1,4 @@
-package com.hangeoreum.api.vocabulary.api;
+package com.hangeoreum.api.vocabulary.application;
 
 import com.hangeoreum.api.vocabulary.domain.UserWord;
 
