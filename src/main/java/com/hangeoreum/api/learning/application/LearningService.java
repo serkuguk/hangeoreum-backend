@@ -173,12 +173,15 @@ public class LearningService {
             // no published course yet — empty map instead of 404 (dashboard shares this call)
             return new CourseMap(null, null, accessService.isPro(userId), List.of());
         }
-        List<Unit> units = unitRepository.findByCourseIdAndIsPublishedTrueOrderByPositionAsc(course.getId());
+        List<Unit> publishedUnits = unitRepository.findByCourseIdAndIsPublishedTrueOrderByPositionAsc(course.getId());
         Map<UUID, List<Lesson>> lessonsByUnit = lessonRepository
-                .findByUnitIdInOrderByPositionAsc(units.stream().map(Unit::getId).toList())
+                .findByUnitIdInOrderByPositionAsc(publishedUnits.stream().map(Unit::getId).toList())
                 .stream()
                 .filter(Lesson::isPublished)
                 .collect(Collectors.groupingBy(Lesson::getUnitId, LinkedHashMap::new, Collectors.toList()));
+        // a published unit whose lessons are all drafts has nothing to learn yet: learners showed it as
+        // «0 / 0 ✓ done» and it shifted chapter numbers, so it stays out of the map until a lesson is published
+        List<Unit> units = publishedUnits.stream().filter(unit -> lessonsByUnit.containsKey(unit.getId())).toList();
 
         Map<UUID, LessonProgress> progressByLesson = progressRepository
                 .findByUserIdAndStatus(userId, ProgressStatus.COMPLETED)
@@ -236,11 +239,16 @@ public class LearningService {
         Lesson lesson = requireLessonAccess(userId, lessonId);
         if (lesson.getType() == LessonType.STORY) accessService.requirePro(userId, Feature.STORY);
         if (existing != null) return sessionAccepted(false, existing);
-        attemptRepository.findById(sessionId).ifPresent(receipt -> {
-            if (!receipt.getUserId().equals(userId) || !receipt.getLessonId().equals(lessonId)) {
+        var receipt = attemptRepository.findById(sessionId);
+        receipt.ifPresent(existingReceipt -> {
+            if (!existingReceipt.getUserId().equals(userId) || !existingReceipt.getLessonId().equals(lessonId)) {
                 throw ApiException.conflict("Completion receipt does not match this session");
             }
         });
+        // a late start for an attempt that already completed spent its quota at completion — don't refuse it
+        if (receipt.isEmpty()) {
+            grantXpService.requireLessonQuota(userId, accessService.isPro(userId) || accessService.isAdmin(userId));
+        }
         List<Exercise> exercises = lesson.getType() == LessonType.STORY ? List.of()
                 : exerciseRepository.findByLessonIdOrderByPositionAsc(lessonId);
         if (lesson.getType() == LessonType.STORY) {
