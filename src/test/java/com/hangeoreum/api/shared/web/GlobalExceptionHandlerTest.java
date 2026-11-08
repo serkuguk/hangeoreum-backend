@@ -7,6 +7,9 @@ import com.hangeoreum.api.learning.domain.LessonType;
 import com.hangeoreum.api.media.domain.Subtitle;
 import com.hangeoreum.api.vocabulary.application.UserWordDto;
 import com.hangeoreum.api.vocabulary.application.WordDto;
+import jakarta.servlet.http.HttpServletResponse;
+import org.apache.catalina.connector.ClientAbortException;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.test.json.JsonCompareMode;
@@ -19,6 +22,10 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 import java.util.UUID;
+import java.io.IOException;
+import java.net.SocketException;
+
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -29,6 +36,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 class GlobalExceptionHandlerTest {
+    @Test
+    void disconnectedVideoClientsDoNotWriteAnErrorBody() throws Exception {
+        MockMvc mvc = standaloneSetup(new ContractController()).setControllerAdvice(new GlobalExceptionHandler()).build();
+        for (boolean wrapped : List.of(false, true)) {
+            for (boolean committed : List.of(false, true)) {
+                mvc.perform(get("/contract/disconnect/" + wrapped + "/" + committed))
+                        .andExpect(status().isOk())
+                        .andExpect(content().string(committed ? "video" : ""))
+                        .andExpect(response -> assertNotNull(response.getResolvedException()));
+            }
+        }
+    }
+
+    @Test
+    void unrelatedIoFailuresStillReturnTheInternalErrorContract() throws Exception {
+        MockMvc mvc = standaloneSetup(new ContractController()).setControllerAdvice(new GlobalExceptionHandler()).build();
+        mvc.perform(get("/contract/io-failure")).andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL"))
+                .andExpect(jsonPath("$.message").value("Internal server error"));
+    }
+
     @Test
     void domainErrorsRetainTheValidationAndConflictHttpContracts() throws Exception {
         MockMvc mvc = standaloneSetup(new ContractController()).setControllerAdvice(new GlobalExceptionHandler()).build();
@@ -58,6 +86,24 @@ class GlobalExceptionHandlerTest {
     @RestController
     static class ContractController {
         private static final UUID ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
+        @GetMapping("/contract/disconnect/{wrapped}/{committed}")
+        void disconnect(@PathVariable boolean wrapped, @PathVariable boolean committed,
+                        HttpServletResponse response) throws IOException {
+            response.setContentType("video/mp4");
+            if (committed) {
+                response.getOutputStream().write("video".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                response.flushBuffer();
+            }
+            var failure = new ClientAbortException(new SocketException("Connection reset by peer"));
+            if (wrapped) throw new IOException("Video response failed", failure);
+            throw failure;
+        }
+
+        @GetMapping("/contract/io-failure")
+        void ioFailure() throws IOException {
+            throw new IOException("Media file could not be read");
+        }
 
         @GetMapping("/contract/validation")
         void validation() {

@@ -9,6 +9,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.util.DisconnectedClientHelper;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -49,6 +50,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     ResponseEntity<ErrorResponse> unexpected(Exception e) {
+        // The client is gone; writing an error body would fail again (e.g. during video streaming).
+        if (DisconnectedClientHelper.isClientDisconnectedException(e)) return null;
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
             if (cause instanceof org.hibernate.exception.ConstraintViolationException constraint) {
                 String name = constraint.getConstraintName();
