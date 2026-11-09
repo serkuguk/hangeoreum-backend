@@ -8,6 +8,8 @@ import com.hangeoreum.api.media.infrastructure.MediaClipRepository;
 import com.hangeoreum.api.media.infrastructure.SubtitleRepository;
 import com.hangeoreum.api.media.infrastructure.UserClipViewRepository;
 import com.hangeoreum.api.shared.web.ApiException;
+import com.hangeoreum.api.vocabulary.application.VocabularyQueryService;
+import com.hangeoreum.api.vocabulary.application.VocabularyQueryService.WordLabel;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,7 @@ public class MediaService {
     private final SubtitleRepository subtitleRepository;
     private final UserClipViewRepository viewRepository;
     private final com.hangeoreum.api.learning.application.LearningQueryService learningQueryService;
+    private final VocabularyQueryService vocabularyQueryService;
     private final jakarta.persistence.EntityManager entityManager;
 
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
@@ -73,7 +76,8 @@ public class MediaService {
 
     public record ClipDto(UUID id, ClipKind kind, UUID speakerId, UUID wordId, String videoUrl, String audioUrl,
                           String thumbnailUrl, Integer durationMs, List<SubtitleDto> subtitles,
-                          boolean watched, boolean liked, String title, int position) {
+                          boolean watched, boolean liked, String title, int position,
+                          String wordHangul, String wordTranslation) {
     }
 
     /** Facade for the learning context: story clip with subtitles. */
@@ -81,7 +85,8 @@ public class MediaService {
     public ClipDto getClipWithSubtitles(UUID clipId) {
         MediaClip clip = clipRepository.findById(clipId)
                 .orElseThrow(() -> ApiException.notFound("Clip"));
-        return toDto(clip, false, false, subtitleRepository.findByClipIdOrderByLangAscPositionAsc(clipId));
+        return toDto(clip, false, false, subtitleRepository.findByClipIdOrderByLangAscPositionAsc(clipId),
+                wordLabels(List.of(clip)));
     }
 
     public record FeedResponse(List<ClipDto> content, String nextCursor) {
@@ -115,10 +120,11 @@ public class MediaService {
         Map<UUID, UserClipView> views = viewRepository
                 .findByUserIdAndClipIdIn(userId, clipIds)
                 .stream().collect(Collectors.toMap(UserClipView::getClipId, Function.identity()));
+        Map<UUID, WordLabel> words = wordLabels(clips);
         List<ClipDto> content = clips.stream()
                 .map(c -> {
                     UserClipView v = views.get(c.getId());
-                    return toDto(c, v != null, v != null && v.isLiked(), subtitles.getOrDefault(c.getId(), List.of()));
+                    return toDto(c, v != null, v != null && v.isLiked(), subtitles.getOrDefault(c.getId(), List.of()), words);
                 })
                 .toList();
         String nextCursor = null;
@@ -152,9 +158,17 @@ public class MediaService {
         }
     }
 
-    private ClipDto toDto(MediaClip clip, boolean watched, boolean liked, List<Subtitle> subtitles) {
+    private Map<UUID, WordLabel> wordLabels(List<MediaClip> clips) {
+        return vocabularyQueryService.wordLabels(clips.stream()
+                .map(MediaClip::getWordId).filter(java.util.Objects::nonNull).collect(Collectors.toSet()));
+    }
+
+    private ClipDto toDto(MediaClip clip, boolean watched, boolean liked, List<Subtitle> subtitles,
+                          Map<UUID, WordLabel> words) {
+        WordLabel word = clip.getWordId() == null ? null : words.get(clip.getWordId());
         return new ClipDto(clip.getId(), clip.getKind(), clip.getSpeakerId(), clip.getWordId(),
                 clip.getVideoUrl(), clip.getAudioUrl(), clip.getThumbnailUrl(), clip.getDurationMs(),
-                subtitles.stream().map(SubtitleDto::from).toList(), watched, liked, clip.getTitle(), clip.getPosition());
+                subtitles.stream().map(SubtitleDto::from).toList(), watched, liked, clip.getTitle(), clip.getPosition(),
+                word == null ? null : word.hangul(), word == null ? null : word.translation());
     }
 }

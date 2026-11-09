@@ -95,7 +95,11 @@ public class MediaAdministrationService {
         switch (type) {
             case "audio" -> clip.setAudioUrl(url);
             case "thumbnail" -> clip.setThumbnailUrl(url);
-            default -> clip.setVideoUrl(url);
+            default -> {
+                clip.setVideoUrl(url);
+                String name = file.getOriginalFilename();
+                clip.setVideoName(name == null ? null : name.substring(0, Math.min(name.length(), 255)));
+            }
         }
         return clip;
     }

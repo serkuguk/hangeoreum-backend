@@ -47,6 +47,10 @@ public class MediaClip {
     @Setter
     private String videoUrl;
 
+    /** Original filename of the uploaded video; storage renames files to UUID. */
+    @Setter
+    private String videoName;
+
     @Setter
     private String audioUrl;
 

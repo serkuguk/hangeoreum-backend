@@ -55,6 +55,16 @@ public class VocabularyQueryService {
                               String partOfSpeech, UUID topicId, String exampleKo, String exampleTranslation,
                               String grammarNote, String audioUrl, String imageUrl) {}
 
+    /** Short word labels for other contexts (e.g. the word linked to an immersion clip). */
+    public record WordLabel(String hangul, String translation) {}
+
+    @Transactional(readOnly = true)
+    public Map<UUID, WordLabel> wordLabels(Collection<UUID> ids) {
+        if (ids.isEmpty()) return Map.of();
+        return wordRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(Word::getId, word -> new WordLabel(word.getHangul(), word.getTranslation())));
+    }
+
     @Transactional(readOnly = true)
     public long wordCount(UUID userId) {
         return userWordRepository.countByUserId(userId);
