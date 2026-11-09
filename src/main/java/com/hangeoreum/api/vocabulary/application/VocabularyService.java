@@ -2,8 +2,6 @@ package com.hangeoreum.api.vocabulary.application;
 
 import com.hangeoreum.api.shared.web.ApiException;
 import com.hangeoreum.api.shared.events.contract.LessonWordsAdded;
-import com.hangeoreum.api.vocabulary.api.UserWordDto;
-import com.hangeoreum.api.vocabulary.api.WordDto;
 import com.hangeoreum.api.vocabulary.domain.*;
 import com.hangeoreum.api.vocabulary.infrastructure.*;
 import lombok.RequiredArgsConstructor;

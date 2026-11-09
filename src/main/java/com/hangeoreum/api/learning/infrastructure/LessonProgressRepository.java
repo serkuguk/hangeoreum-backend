@@ -38,4 +38,8 @@ public interface LessonProgressRepository extends JpaRepository<LessonProgress, 
     boolean existsByUserIdAndStatusAndScoreGreaterThanEqual(UUID userId, ProgressStatus status, short score);
 
     boolean existsByLessonId(UUID lessonId);
+    org.springframework.data.domain.Page<LessonProgress> findByUserId(UUID userId, org.springframework.data.domain.Pageable pageable);
+    List<LessonProgress> findByUserIdAndLessonIdIn(UUID userId, java.util.Collection<UUID> lessonIds);
+    long countByUserId(UUID userId);
+
 }

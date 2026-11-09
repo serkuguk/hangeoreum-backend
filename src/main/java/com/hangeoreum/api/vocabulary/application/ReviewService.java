@@ -4,7 +4,6 @@ import com.hangeoreum.api.billing.application.AccessService;
 import com.hangeoreum.api.gamification.application.GrantXpService;
 import com.hangeoreum.api.gamification.domain.XpSource;
 import com.hangeoreum.api.shared.web.ApiException;
-import com.hangeoreum.api.vocabulary.api.UserWordDto;
 import com.hangeoreum.api.vocabulary.domain.*;
 import com.hangeoreum.api.vocabulary.infrastructure.*;
 import lombok.RequiredArgsConstructor;
@@ -63,6 +62,10 @@ public class ReviewService {
             queue = userWordRepository.findByUserIdAndDueDateLessThanEqualOrderByDueDateAsc(
                     userId, LocalDate.now(), PageRequest.of(0, size));
         }
+        if (queue.size() < size && deckId == null && !difficultOnly && GAME_MODES.contains(mode)) {
+            // games may practise any saved word: top up with not-due words, due ones come first
+            queue = userWordRepository.findByUserIdOrderByDueDateAsc(userId, PageRequest.of(0, size));
+        }
         if (queue.isEmpty()) {
             throw ApiException.conflict("No words to review");
         }
@@ -120,7 +123,8 @@ public class ReviewService {
                     session.getStreakAfter() == null ? 0 : session.getStreakAfter());
         }
         long issued = cardRepository.countBySessionId(sessionId);
-        if (issued == 0 || session.getTotal() != issued) {
+        // timed games may end with unanswered cards; other modes must answer every issued card
+        if (issued == 0 || (!session.isGame() && session.getTotal() != issued)) {
             throw ApiException.conflict("Answer every issued card before finishing the session");
         }
         int xp = session.finish();

@@ -1,5 +1,6 @@
 package com.hangeoreum.api.identity.api;
 
+import com.hangeoreum.api.identity.application.UserDto;
 import com.hangeoreum.api.identity.application.AuthService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Email;

@@ -1,6 +1,6 @@
 package com.hangeoreum.api.media.domain;
 
-import com.hangeoreum.api.shared.web.ApiException;
+import com.hangeoreum.api.shared.domain.DomainException;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -35,9 +35,21 @@ public class MediaClip {
 
     @Setter
     private UUID unitId;
+    @Setter
+    private String title;
+    private int position;
+
+    public void setPosition(int position) {
+        if (position < 0) throw DomainException.validation("Position must be nonnegative");
+        this.position = position;
+    }
 
     @Setter
     private String videoUrl;
+
+    /** Original filename of the uploaded video; storage renames files to UUID. */
+    @Setter
+    private String videoName;
 
     @Setter
     private String audioUrl;
@@ -48,7 +60,7 @@ public class MediaClip {
     private Integer durationMs;
 
     public void setDurationMs(Integer durationMs) {
-        if (durationMs != null && durationMs < 0) throw ApiException.badRequest("Duration must be nonnegative");
+        if (durationMs != null && durationMs < 0) throw DomainException.validation("Duration must be nonnegative");
         this.durationMs = durationMs;
     }
 
@@ -66,11 +78,15 @@ public class MediaClip {
 
     /** Invariant: a clip can only be published with a video and at least one subtitle line. */
     public void publish(long subtitleCount) {
+        if (kind == ClipKind.IMMERSE && (unitId == null || title == null || title.isBlank()
+                || videoUrl == null || videoUrl.isBlank())) {
+            throw DomainException.conflict("Immersion requires a unit, title and video");
+        }
         if (videoUrl == null && audioUrl == null) {
-            throw ApiException.conflict("Clip has no video/audio");
+            throw DomainException.conflict("Clip has no video/audio");
         }
         if (kind != ClipKind.WORD && subtitleCount == 0) {
-            throw ApiException.conflict("Clip has no subtitles");
+            throw DomainException.conflict("Clip has no subtitles");
         }
         this.isPublished = true;
     }

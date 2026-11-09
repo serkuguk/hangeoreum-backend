@@ -26,4 +26,8 @@ public interface LessonAttemptRepository extends JpaRepository<LessonAttempt, UU
     int claim(@Param("attemptId") UUID attemptId, @Param("userId") UUID userId,
               @Param("lessonId") UUID lessonId, @Param("score") short score,
               @Param("accuracy") short accuracy);
+    org.springframework.data.domain.Page<LessonAttempt> findByUserId(UUID userId, org.springframework.data.domain.Pageable pageable);
+    java.util.List<LessonAttempt> findByUserIdAndIdIn(UUID userId, java.util.Collection<UUID> ids);
+    long countByUserId(UUID userId);
+
 }

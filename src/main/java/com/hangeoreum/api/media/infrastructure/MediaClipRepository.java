@@ -28,19 +28,16 @@ public interface MediaClipRepository extends JpaRepository<MediaClip, UUID> {
                          @Param("cursorId") UUID cursorId,
                          Pageable pageable);
 
-    boolean existsByKindAndUnitIdAndIsPublishedTrue(ClipKind kind, UUID unitId);
-
     @Query("""
             select c from MediaClip c
             where c.kind = :kind and c.isPublished = true and c.unitId = :unitId
-              and (cast(:cursorCreatedAt as timestamp) is null
-                   or c.createdAt < :cursorCreatedAt
-                   or (c.createdAt = :cursorCreatedAt and c.id < :cursorId))
-            order by c.createdAt desc, c.id desc
+              and (:cursorPosition is null or c.position > :cursorPosition
+                   or (c.position = :cursorPosition and c.id > :cursorId))
+            order by c.position asc, c.id asc
             """)
     List<MediaClip> feedByUnit(@Param("kind") ClipKind kind,
                                @Param("unitId") UUID unitId,
-                               @Param("cursorCreatedAt") Instant cursorCreatedAt,
+                               @Param("cursorPosition") Integer cursorPosition,
                                @Param("cursorId") UUID cursorId,
                                Pageable pageable);
 }

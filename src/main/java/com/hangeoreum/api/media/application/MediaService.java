@@ -8,6 +8,8 @@ import com.hangeoreum.api.media.infrastructure.MediaClipRepository;
 import com.hangeoreum.api.media.infrastructure.SubtitleRepository;
 import com.hangeoreum.api.media.infrastructure.UserClipViewRepository;
 import com.hangeoreum.api.shared.web.ApiException;
+import com.hangeoreum.api.vocabulary.application.VocabularyQueryService;
+import com.hangeoreum.api.vocabulary.application.VocabularyQueryService.WordLabel;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,7 @@ public class MediaService {
     private final SubtitleRepository subtitleRepository;
     private final UserClipViewRepository viewRepository;
     private final com.hangeoreum.api.learning.application.LearningQueryService learningQueryService;
+    private final VocabularyQueryService vocabularyQueryService;
     private final jakarta.persistence.EntityManager entityManager;
 
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
@@ -41,7 +44,7 @@ public class MediaService {
     }
 
     @Transactional
-    public MediaClip updateClip(UUID id, ClipKind kind, UUID speakerId, UUID wordId, UUID unitId, Integer durationMs) {
+    public MediaClip updateClip(UUID id, ClipKind kind, UUID speakerId, UUID wordId, UUID unitId, Integer durationMs, String title, Integer position) {
         MediaClip clip = lockClip(id);
         if (kind != ClipKind.STORY && learningQueryService.usesStoryClip(id)) {
             throw ApiException.conflict("Clip is used by a story");
@@ -51,6 +54,10 @@ public class MediaService {
         clip.setWordId(wordId);
         clip.setUnitId(unitId);
         clip.setDurationMs(durationMs);
+        clip.setTitle(title);
+        if (position != null) clip.setPosition(position);
+        if (unitId != null) learningQueryService.requireUnit(unitId);
+        if (clip.isPublished()) clip.publish(subtitleRepository.countByClipId(id));
         return clip;
     }
 
@@ -69,7 +76,8 @@ public class MediaService {
 
     public record ClipDto(UUID id, ClipKind kind, UUID speakerId, UUID wordId, String videoUrl, String audioUrl,
                           String thumbnailUrl, Integer durationMs, List<SubtitleDto> subtitles,
-                          boolean watched, boolean liked) {
+                          boolean watched, boolean liked, String title, int position,
+                          String wordHangul, String wordTranslation) {
     }
 
     /** Facade for the learning context: story clip with subtitles. */
@@ -77,7 +85,8 @@ public class MediaService {
     public ClipDto getClipWithSubtitles(UUID clipId) {
         MediaClip clip = clipRepository.findById(clipId)
                 .orElseThrow(() -> ApiException.notFound("Clip"));
-        return toDto(clip, false, false, subtitleRepository.findByClipIdOrderByLangAscPositionAsc(clipId));
+        return toDto(clip, false, false, subtitleRepository.findByClipIdOrderByLangAscPositionAsc(clipId),
+                wordLabels(List.of(clip)));
     }
 
     public record FeedResponse(List<ClipDto> content, String nextCursor) {
@@ -85,41 +94,44 @@ public class MediaService {
 
     @Transactional(readOnly = true)
     public FeedResponse getImmerseFeed(UUID userId, UUID unitId, String cursor, int size) {
-        Instant cursorCreatedAt = null;
+        if (size < 1 || size > 30) throw ApiException.badRequest("Invalid page size");
+        Integer cursorPosition = null;
         UUID cursorId = null;
         if (cursor != null && !cursor.isBlank()) {
             try {
                 String[] parts = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8).split("\\|");
-                cursorCreatedAt = Instant.parse(parts[0]);
-                cursorId = UUID.fromString(parts[1]);
+                if (parts.length != 3 || !UUID.fromString(parts[0]).equals(unitId)) throw new IllegalArgumentException();
+                cursorPosition = Integer.parseInt(parts[1]);
+                if (cursorPosition < 0) throw new IllegalArgumentException();
+                cursorId = UUID.fromString(parts[2]);
             } catch (Exception e) {
                 throw ApiException.badRequest("Invalid cursor");
             }
         }
-        // ponytail: plain reverse-chronological cursor; "unwatched first" is exposed via the
-        // watched flag for the client to skip, revisit if product insists on server-side ordering
-        // у юнита ещё нет видео — показываем общую ленту
-        boolean byUnit = unitId != null && clipRepository.existsByKindAndUnitIdAndIsPublishedTrue(ClipKind.IMMERSE, unitId);
-        List<MediaClip> clips = byUnit
-                ? clipRepository.feedByUnit(ClipKind.IMMERSE, unitId, cursorCreatedAt, cursorId, PageRequest.of(0, size))
-                : clipRepository.feed(ClipKind.IMMERSE, cursorCreatedAt, cursorId, PageRequest.of(0, size));
+        if (unitId == null) return new FeedResponse(List.of(), null);
+        List<MediaClip> page = clipRepository.feedByUnit(ClipKind.IMMERSE, unitId, cursorPosition,
+                cursorId, PageRequest.of(0, size + 1));
+        boolean hasMore = page.size() > size;
+        List<MediaClip> clips = hasMore ? page.subList(0, size) : page;
+        if (clips.isEmpty()) return new FeedResponse(List.of(), null);
         List<UUID> clipIds = clips.stream().map(MediaClip::getId).toList();
         Map<UUID, List<Subtitle>> subtitles = subtitleRepository.findByClipIdInOrderByLangAscPositionAsc(clipIds)
                 .stream().collect(Collectors.groupingBy(Subtitle::getClipId));
         Map<UUID, UserClipView> views = viewRepository
                 .findByUserIdAndClipIdIn(userId, clipIds)
                 .stream().collect(Collectors.toMap(UserClipView::getClipId, Function.identity()));
+        Map<UUID, WordLabel> words = wordLabels(clips);
         List<ClipDto> content = clips.stream()
                 .map(c -> {
                     UserClipView v = views.get(c.getId());
-                    return toDto(c, v != null, v != null && v.isLiked(), subtitles.getOrDefault(c.getId(), List.of()));
+                    return toDto(c, v != null, v != null && v.isLiked(), subtitles.getOrDefault(c.getId(), List.of()), words);
                 })
                 .toList();
         String nextCursor = null;
-        if (clips.size() == size) {
+        if (hasMore) {
             MediaClip last = clips.getLast();
             nextCursor = Base64.getUrlEncoder().withoutPadding().encodeToString(
-                    (last.getCreatedAt() + "|" + last.getId()).getBytes(StandardCharsets.UTF_8));
+                    (unitId + "|" + last.getPosition() + "|" + last.getId()).getBytes(StandardCharsets.UTF_8));
         }
         return new FeedResponse(content, nextCursor);
     }
@@ -146,9 +158,17 @@ public class MediaService {
         }
     }
 
-    private ClipDto toDto(MediaClip clip, boolean watched, boolean liked, List<Subtitle> subtitles) {
+    private Map<UUID, WordLabel> wordLabels(List<MediaClip> clips) {
+        return vocabularyQueryService.wordLabels(clips.stream()
+                .map(MediaClip::getWordId).filter(java.util.Objects::nonNull).collect(Collectors.toSet()));
+    }
+
+    private ClipDto toDto(MediaClip clip, boolean watched, boolean liked, List<Subtitle> subtitles,
+                          Map<UUID, WordLabel> words) {
+        WordLabel word = clip.getWordId() == null ? null : words.get(clip.getWordId());
         return new ClipDto(clip.getId(), clip.getKind(), clip.getSpeakerId(), clip.getWordId(),
                 clip.getVideoUrl(), clip.getAudioUrl(), clip.getThumbnailUrl(), clip.getDurationMs(),
-                subtitles.stream().map(SubtitleDto::from).toList(), watched, liked);
+                subtitles.stream().map(SubtitleDto::from).toList(), watched, liked, clip.getTitle(), clip.getPosition(),
+                word == null ? null : word.hangul(), word == null ? null : word.translation());
     }
 }

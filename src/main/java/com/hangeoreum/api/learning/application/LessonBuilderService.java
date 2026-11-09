@@ -6,7 +6,7 @@ import com.hangeoreum.api.learning.infrastructure.ExerciseRepository;
 import com.hangeoreum.api.learning.infrastructure.LearningTipRepository;
 import com.hangeoreum.api.learning.infrastructure.LessonRepository;
 import com.hangeoreum.api.shared.web.ApiException;
-import com.hangeoreum.api.vocabulary.api.WordDto;
+import com.hangeoreum.api.vocabulary.application.WordDto;
 import com.hangeoreum.api.vocabulary.application.VocabularyAdministrationService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -29,6 +29,7 @@ public class LessonBuilderService {
     private final ExerciseRepository exerciseRepository;
     private final LearningTipRepository tipRepository;
     private final VocabularyAdministrationService vocabulary;
+    private final LearningService learningService;
 
     public record ExerciseDto(UUID id, short position, ExerciseKind kind,
                               @com.fasterxml.jackson.annotation.JsonRawValue String payload) {
@@ -87,9 +88,13 @@ public class LessonBuilderService {
     }
 
     public void deleteExercise(UUID lessonId, UUID exerciseId) {
+        Lesson lesson = learningService.lockLesson(lessonId);
         exerciseRepository.findById(exerciseId)
                 .filter(e -> e.getLessonId().equals(lessonId))
-                .ifPresent(exerciseRepository::delete);
+                .ifPresent(exercise -> {
+                    lesson.requireExerciseDeletion(exerciseRepository.countByLessonId(lessonId));
+                    exerciseRepository.delete(exercise);
+                });
     }
 
     // ---- tip ----

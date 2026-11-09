@@ -43,4 +43,7 @@ docs/
 graphify-out/
 scripts/
 uploads/
-/src/main/resources/db/
+/src/main/resources/db/*
+!/src/main/resources/db/migration/
+/src/main/resources/db/migration/*
+!/src/main/resources/db/migration/V16__immerse_unit_practice.sql

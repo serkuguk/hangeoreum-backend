@@ -1,5 +1,6 @@
 package com.hangeoreum.api.identity.api;
 
+import com.hangeoreum.api.identity.application.UserDto;
 import com.fasterxml.jackson.annotation.JsonRawValue;
 import tools.jackson.databind.JsonNode;
 import com.hangeoreum.api.identity.application.MeService;

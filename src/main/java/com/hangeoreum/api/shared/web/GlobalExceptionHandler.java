@@ -1,5 +1,6 @@
 package com.hangeoreum.api.shared.web;
 
+import com.hangeoreum.api.shared.domain.DomainException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -8,6 +9,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.util.DisconnectedClientHelper;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -20,6 +22,14 @@ public class GlobalExceptionHandler {
     ResponseEntity<ErrorResponse> apiException(ApiException e) {
         return ResponseEntity.status(e.getStatus())
                 .body(new ErrorResponse(e.getCode(), e.getMessage(), e.getDetails()));
+    }
+
+    @ExceptionHandler(DomainException.class)
+    ResponseEntity<ErrorResponse> domainException(DomainException e) {
+        HttpStatus status = e.getCategory() == DomainException.Category.VALIDATION
+                ? HttpStatus.BAD_REQUEST : HttpStatus.CONFLICT;
+        return ResponseEntity.status(status)
+                .body(new ErrorResponse(e.getCategory().name(), e.getMessage(), Map.of()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -40,6 +50,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     ResponseEntity<ErrorResponse> unexpected(Exception e) {
+        // The client is gone; writing an error body would fail again (e.g. during video streaming).
+        if (DisconnectedClientHelper.isClientDisconnectedException(e)) return null;
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
             if (cause instanceof org.hibernate.exception.ConstraintViolationException constraint) {
                 String name = constraint.getConstraintName();
@@ -60,7 +72,9 @@ public class GlobalExceptionHandler {
     }
     @ExceptionHandler({org.springframework.web.method.annotation.HandlerMethodValidationException.class,
             jakarta.validation.ConstraintViolationException.class,
-            org.springframework.http.converter.HttpMessageNotReadableException.class})
+            org.springframework.http.converter.HttpMessageNotReadableException.class,
+            org.springframework.web.bind.MissingServletRequestParameterException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
     ResponseEntity<ErrorResponse> invalidInput(Exception e) {
         return apiException(ApiException.badRequest("Invalid request values"));
     }

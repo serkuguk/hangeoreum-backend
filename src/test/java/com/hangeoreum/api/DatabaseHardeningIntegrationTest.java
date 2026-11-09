@@ -16,6 +16,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import java.util.concurrent.CountDownLatch;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.junit.jupiter.Container;
@@ -56,11 +59,68 @@ class DatabaseHardeningIntegrationTest {
     }
 
     @Autowired MockMvc mvc;
+    @Autowired PlatformTransactionManager transactions;
     @Autowired JdbcTemplate jdbc;
     @Autowired UserRepository users;
     @Autowired AuthService auth;
     @Autowired com.hangeoreum.api.shared.events.OutboxDispatcher outbox;
     @MockitoBean PasswordResetMailSender mailSender;
+
+    @Test
+    void publishedLessonKeepsOneExerciseAcrossConcurrentDeletesAndCanDeleteAfterUnpublishing() throws Exception {
+        String editor = token(user(UserRole.EDITOR));
+        UUID lesson = lesson(unit(course(), 0), 0, "STORY");
+        UUID first = UUID.randomUUID(), second = UUID.randomUUID();
+        for (UUID id : List.of(first, second)) {
+            jdbc.update("insert into exercises(id,lesson_id,position,kind,payload) values (?,?,?,'CHOICE','{}')",
+                    id, lesson, id.equals(first) ? 0 : 1);
+        }
+        request(patch("/api/v1/admin/lessons/" + lesson + "/publish"), editor, "{\"isPublished\":true}")
+                .andExpect(status().isOk());
+        CountDownLatch counted = new CountDownLatch(1), releaseCount = new CountDownLatch(1);
+        String base = "/api/v1/admin/lessons/" + lesson + "/exercises/";
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var a = executor.submit(() -> new TransactionTemplate(transactions).execute(transaction -> {
+                int result = assertDoesNotThrow(() -> request(delete(base + first), editor, "").andReturn().getResponse().getStatus());
+                counted.countDown();
+                assertDoesNotThrow(() -> assertTrue(releaseCount.await(10, TimeUnit.SECONDS)));
+                return result;
+            }));
+            try {
+                assertTrue(counted.await(5, TimeUnit.SECONDS));
+                var b = executor.submit(() -> request(delete(base + second), editor, "")
+                        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CONFLICT"))
+                        .andExpect(jsonPath("$.message").value("Published lesson needs at least one exercise"))
+                        .andExpect(jsonPath("$.details").isEmpty()).andReturn().getResponse().getStatus());
+                try {
+                    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                    boolean waiting = false;
+                    while (!waiting && System.nanoTime() < deadline) {
+                        waiting = Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from pg_stat_activity "
+                                + "where pid <> pg_backend_pid() and wait_event_type = 'Lock' "
+                                + "and lower(query) like 'select%lessons%')", Boolean.class));
+                    }
+                    assertTrue(waiting, "Second deletion must wait for the lesson lock");
+                } finally {
+                    releaseCount.countDown();
+                }
+                assertEquals(204, a.get(10, TimeUnit.SECONDS));
+                assertEquals(409, b.get(10, TimeUnit.SECONDS));
+            } finally {
+                releaseCount.countDown();
+            }
+        }
+        assertEquals(1, count("select count(*) from exercises where lesson_id = ?", lesson));
+        assertEquals(true, jdbc.queryForObject("select is_published from lessons where id = ?", Boolean.class, lesson));
+        UUID foreignLesson = lesson(unit(course(), 0), 0, "STORY");
+        request(delete("/api/v1/admin/lessons/" + foreignLesson + "/exercises/" + second), editor, "")
+                .andExpect(status().isNoContent());
+        assertEquals(1, count("select count(*) from exercises where lesson_id = ?", lesson));
+        request(patch("/api/v1/admin/lessons/" + lesson + "/publish"), editor, "{\"isPublished\":false}")
+                .andExpect(status().isOk());
+        request(delete(base + second), editor, "").andExpect(status().isNoContent());
+        assertEquals(0, count("select count(*) from exercises where lesson_id = ?", lesson));
+    }
 
     @Test
     void recurringWebhooksAreAtomicAndDeduplicatedAcrossEvents() throws Exception {
@@ -298,7 +358,9 @@ class DatabaseHardeningIntegrationTest {
             statement.executeUpdate("insert into users(id,name,email) values ('00000000-0000-0000-0000-000000000001','Upgrade','Upgrade@example.com')");
             statement.executeUpdate("insert into payments(user_id,amount_cents) values ('00000000-0000-0000-0000-000000000001',100)");
         }
-        assertEquals(7, Flyway.configure().dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword()).load().migrate().migrationsExecuted);
+        Flyway upgrade = Flyway.configure().dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword()).load();
+        int pendingMigrations = upgrade.info().pending().length;
+        assertEquals(pendingMigrations, upgrade.migrate().migrationsExecuted);
         try (var connection = java.sql.DriverManager.getConnection(url, POSTGRES.getUsername(), POSTGRES.getPassword());
              var statement = connection.createStatement();
              var rows = statement.executeQuery("select count(*) from payments where provider='STRIPE' and amount_cents=100")) {

@@ -36,15 +36,34 @@ public class Lesson {
     private short xpReward = 10;
 
     public void setXpReward(short xpReward) {
-        if (xpReward < 0) throw com.hangeoreum.api.shared.web.ApiException.badRequest("XP must be nonnegative");
+        if (xpReward < 0) throw com.hangeoreum.api.shared.domain.DomainException.validation("XP must be nonnegative");
         this.xpReward = xpReward;
     }
 
     @Setter
     private boolean isFree = false;
 
-    @Setter
     private boolean isPublished = false;
+
+    public void publish(long exerciseCount, boolean hasTip) {
+        if (exerciseCount == 0) {
+            throw com.hangeoreum.api.shared.domain.DomainException.conflict("Lesson needs at least one exercise to be published");
+        }
+        if ((type == LessonType.GRAMMAR || type == LessonType.LESSON) && !hasTip) {
+            throw com.hangeoreum.api.shared.domain.DomainException.conflict("Lesson of type " + type + " needs a tip to be published");
+        }
+        isPublished = true;
+    }
+
+    public void unpublish() {
+        isPublished = false;
+    }
+
+    public void requireExerciseDeletion(long exerciseCount) {
+        if (isPublished && exerciseCount <= 1) {
+            throw com.hangeoreum.api.shared.domain.DomainException.conflict("Published lesson needs at least one exercise");
+        }
+    }
 
     public static Lesson create(UUID unitId, short position, LessonType type, String title,
                                 short xpReward, boolean isFree) {

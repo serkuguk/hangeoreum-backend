@@ -24,10 +24,14 @@ public interface UserWordRepository extends JpaRepository<UserWord, UUID> {
     @Query("select uw from UserWord uw where uw.userId = :userId and uw.word.id = :wordId")
     Optional<UserWord> findByUserIdAndWordIdForUpdate(@Param("userId") UUID userId, @Param("wordId") UUID wordId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<UserWord> findByIdAndUserId(UUID id, UUID userId);
 
     @EntityGraph(attributePaths = "word")
     List<UserWord> findByUserIdAndDueDateLessThanEqualOrderByDueDateAsc(UUID userId, LocalDate date, Pageable pageable);
+
+    @EntityGraph(attributePaths = "word")
+    List<UserWord> findByUserIdOrderByDueDateAsc(UUID userId, Pageable pageable);
 
     @EntityGraph(attributePaths = "word")
     List<UserWord> findByUserIdAndIsDifficultTrueOrderByEaseFactorAsc(UUID userId, Pageable pageable);
@@ -56,4 +60,7 @@ public interface UserWordRepository extends JpaRepository<UserWord, UUID> {
             """)
     Page<UserWord> search(@Param("userId") UUID userId, @Param("pattern") String pattern,
                           @Param("level") Short level, @Param("topicId") UUID topicId, Pageable pageable);
+    @EntityGraph(attributePaths = "word")
+    Page<UserWord> findByUserIdAndIsDifficultTrue(UUID userId, Pageable pageable);
+
 }

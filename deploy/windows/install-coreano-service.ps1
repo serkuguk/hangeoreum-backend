@@ -77,9 +77,9 @@ if ($EnvFile) {
     }
 }
 
-if ($DatasourceUrl) { $envValues["SPRING_DATASOURCE_URL"] = $DatasourceUrl }
-if ($DatasourceUsername) { $envValues["SPRING_DATASOURCE_USERNAME"] = $DatasourceUsername }
-if ($DatasourcePassword) { $envValues["SPRING_DATASOURCE_PASSWORD"] = $DatasourcePassword }
+if ($DatasourceUrl) { $envValues["DB_URL"] = $DatasourceUrl }
+if ($DatasourceUsername) { $envValues["DB_USERNAME"] = $DatasourceUsername }
+if ($DatasourcePassword) { $envValues["DB_PASSWORD"] = $DatasourcePassword }
 if ($JwtSecret) { $envValues["JWT_SECRET"] = $JwtSecret }
 if ($FrontOrigin) { $envValues["FRONT_ORIGIN"] = $FrontOrigin }
 if ($FrontUrl) { $envValues["FRONT_URL"] = $FrontUrl }

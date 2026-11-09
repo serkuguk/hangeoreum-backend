@@ -5,6 +5,7 @@ import com.hangeoreum.api.billing.domain.*;
 import com.hangeoreum.api.billing.infrastructure.SubscriptionRepository;
 import com.hangeoreum.api.identity.application.AuthService;
 import com.hangeoreum.api.identity.domain.User;
+import com.hangeoreum.api.identity.domain.UserRole;
 import com.hangeoreum.api.identity.infrastructure.PasswordResetMailSender;
 import com.hangeoreum.api.identity.infrastructure.UserRepository;
 import com.hangeoreum.api.media.application.MediaService;
@@ -33,7 +34,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
+@SpringBootTest(properties = {
+        "spring.jpa.properties.hibernate.generate_statistics=true",
+        "spring.jpa.properties.hibernate.session_factory.statement_inspector=com.hangeoreum.api.AuditInvariantsPerformanceIntegrationTest$MonitoringSql"
+})
 @AutoConfigureMockMvc
 @Testcontainers
 class AuditInvariantsPerformanceIntegrationTest {
@@ -58,6 +62,104 @@ class AuditInvariantsPerformanceIntegrationTest {
     @MockitoBean PasswordResetMailSender mail;
     @MockitoBean com.hangeoreum.api.shared.events.OutboxDispatcher outbox;
     @MockitoBean com.hangeoreum.api.notification.application.NotificationJobs jobs;
+
+    public static class MonitoringSql implements org.hibernate.resource.jdbc.spi.StatementInspector {
+        static final java.util.List<String> statements = new java.util.concurrent.CopyOnWriteArrayList<>();
+        @Override public String inspect(String sql) {
+            statements.add(sql.toLowerCase(java.util.Locale.ROOT));
+            return sql;
+        }
+    }
+
+    @Test
+    void monitoringHttpQueriesStaySqlBoundedWithoutPaymentsOrLinearPageGrowth() throws Exception {
+        User target = newUser();
+        User admin = users.findAll().stream().filter(row -> row.getRole() == UserRole.ADMIN).findFirst().orElseGet(() -> {
+            User created = newUser();
+            created.changeRole(UserRole.ADMIN);
+            return users.saveAndFlush(created);
+        });
+        String token = "Bearer " + auth.issueTokens(admin).accessToken();
+        UUID course = UUID.randomUUID(), unit = UUID.randomUUID(), firstSession = UUID.randomUUID(), firstReview = UUID.randomUUID();
+        jdbc.update("insert into courses(id,title) values (?,'Monitoring performance')", course);
+        jdbc.update("insert into units(id,course_id,position,title) values (?,?,0,'Unit')", unit, course);
+        UUID exercise = UUID.randomUUID();
+        String snapshot = "[{\"exerciseId\":\"" + exercise + "\",\"kind\":\"TYPE_WORD\",\"position\":0,\"context\":\"Bounded\"}]";
+        for (int i = 0; i < 60; i++) {
+            UUID lesson = UUID.randomUUID(), session = i == 0 ? firstSession : UUID.randomUUID();
+            UUID word = UUID.randomUUID(), review = i == 0 ? firstReview : UUID.randomUUID();
+            jdbc.update("insert into lessons(id,unit_id,position,title) values (?,?,?,'Lesson')", lesson, unit, i);
+            jdbc.update("insert into lesson_progress(user_id,lesson_id,status) values (?,?,'COMPLETED')", target.getId(), lesson);
+            jdbc.update("insert into lesson_sessions(id,user_id,lesson_id,course_id,lesson_title,lesson_type,exercises,started_at,last_received_at) values (?,?,?,?,'Snapshot','LESSON',cast(? as jsonb),now(),now())",
+                    session, target.getId(), lesson, course, snapshot);
+            jdbc.update("insert into lesson_attempts(id,user_id,lesson_id,score,accuracy) values (?,?,?,80,90)", session, target.getId(), lesson);
+            jdbc.update("insert into words(id,hangul,romanization,translation) values (?,'word','word','Word')", word);
+            jdbc.update("insert into user_words(user_id,word_id,is_difficult) values (?,?,true)", target.getId(), word);
+            jdbc.update("insert into review_sessions(id,user_id,mode) values (?,?,'FLASHCARDS')", review, target.getId());
+            jdbc.update("insert into review_session_cards(session_id,word_id,position) values (?,?,0)", review, word);
+            jdbc.update("insert into review_answers(session_id,word_id,quality,is_correct) values (?,?,3,true)", review, word);
+            jdbc.update("insert into lesson_exercise_results(session_id,sequence_number,exercise_id,correct,received_at) values (?,?,?,true,now())", firstSession, i + 1, exercise);
+            if (i > 0) jdbc.update("insert into review_answers(session_id,word_id,quality,is_correct) values (?,?,2,false)", firstReview, word);
+        }
+        String base = "/api/v1/admin/users/" + target.getId() + "/monitoring";
+        MonitoringSql.statements.clear();
+        mvc.perform(get(base).header("Authorization", token)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.counts.sessions").value(60)).andExpect(jsonPath("$.counts.progress").value(60))
+                .andExpect(jsonPath("$.difficultWords.content.length()").value(20))
+                .andExpect(jsonPath("$.difficultWords.totalElements").value(60)).andExpect(jsonPath("$.difficultWords.hasMore").value(true));
+        assertNoMonitoringBillingSql();
+        assertBoundedSql("user_words");
+        var statistics = emf.unwrap(SessionFactory.class).getStatistics();
+        for (String kind : List.of("sessions", "completions", "progress", "reviews", "difficult-words")) {
+            statistics.clear();
+            mvc.perform(get(base + "/history").header("Authorization", token).param("kind", kind).param("size", "1"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(60))
+                    .andExpect(jsonPath("$.content.length()").value(1));
+            long one = statistics.getPrepareStatementCount();
+            MonitoringSql.statements.clear();
+            statistics.clear();
+            mvc.perform(get(base + "/history").header("Authorization", token).param("kind", kind).param("size", "50"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(50));
+            assertEquals(one, statistics.getPrepareStatementCount(), "SQL count must not grow with page size: " + kind);
+            assertNoMonitoringBillingSql();
+            assertBoundedSql(switch (kind) {
+                case "sessions" -> "lesson_sessions";
+                case "completions" -> "lesson_attempts";
+                case "progress" -> "lesson_progress";
+                case "reviews" -> "review_sessions";
+                default -> "user_words";
+            });
+            mvc.perform(get(base + "/history").header("Authorization", token).param("kind", kind))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(20));
+            mvc.perform(get(base + "/history").header("Authorization", token).param("kind", kind).param("size", "50").param("page", "1"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(10)).andExpect(jsonPath("$.page").value(1));
+        }
+        for (String path : List.of("/sessions/" + firstSession, "/history?kind=reviews&sessionId=" + firstReview)) {
+            String field = path.startsWith("/sessions") ? "$.results.content.length()" : "$.content.length()";
+            statistics.clear();
+            mvc.perform(get(base + path).header("Authorization", token).param("size", "1"))
+                    .andExpect(status().isOk()).andExpect(jsonPath(field).value(1));
+            long one = statistics.getPrepareStatementCount();
+            MonitoringSql.statements.clear();
+            statistics.clear();
+            mvc.perform(get(base + path).header("Authorization", token).param("size", "50"))
+                    .andExpect(status().isOk()).andExpect(jsonPath(field).value(50));
+            assertEquals(one, statistics.getPrepareStatementCount(), "Detail queries must be batched");
+            assertBoundedSql(path.startsWith("/sessions") ? "lesson_exercise_results" : "review_answers");
+            assertNoMonitoringBillingSql();
+        }
+    }
+
+    private static void assertNoMonitoringBillingSql() {
+        assertTrue(MonitoringSql.statements.stream().noneMatch(sql -> sql.contains("payments") || sql.contains("subscriptions")),
+                "Monitoring must not read billing: " + MonitoringSql.statements);
+    }
+
+    private static void assertBoundedSql(String table) {
+        assertTrue(MonitoringSql.statements.stream().anyMatch(sql -> sql.contains(table)
+                        && (sql.contains("fetch first") || sql.contains("fetch next") || sql.contains(" limit "))),
+                "Expected SQL-level limit for " + table + ": " + MonitoringSql.statements);
+    }
 
     @Test
     void invalidPaginationAndReviewLimitsReturn400AndKeepSecurity() throws Exception {
@@ -120,25 +222,37 @@ class AuditInvariantsPerformanceIntegrationTest {
     @Test
     void immerseSqlCountIsConstantAndPreservesSubtitleOrderAndEmptyClips() {
         UUID userId = newUser().getId();
+        UUID course = UUID.randomUUID();
+        UUID unit = UUID.randomUUID();
+        jdbc.update("insert into courses(id,title) values (?, 'Practice')", course);
+        jdbc.update("insert into units(id,course_id,position,title) values (?,?,0,'Unit')", unit, course);
         UUID first = UUID.randomUUID();
         for (int i = 0; i < 5; i++) {
             UUID clip = i == 0 ? first : UUID.randomUUID();
-            jdbc.update("insert into media_clips(id,kind,video_url,is_published,created_at) values (?, 'IMMERSE', '/test', true, ?)",
-                    clip, java.sql.Timestamp.from(Instant.parse("2026-10-12T12:00:00Z").minusSeconds(i)));
+            jdbc.update("insert into media_clips(id,kind,video_url,is_published,created_at,unit_id,position) values (?, 'IMMERSE', '/test', true, ?,?,?)",
+                    clip, java.sql.Timestamp.from(Instant.parse("2026-10-12T12:00:00Z").minusSeconds(i)), unit, i);
         }
         jdbc.update("insert into subtitles(clip_id,lang,position,text,start_ms,end_ms) values (?, 'ko', 2, 'second', 1, 2), (?, 'ko', 1, 'first', 0, 1)", first, first);
         var statistics = emf.unwrap(SessionFactory.class).getStatistics();
         statistics.clear();
-        media.getImmerseFeed(userId, null, null, 1);
+        media.getImmerseFeed(userId, unit, null, 1);
         long oneClip = statistics.getPrepareStatementCount();
         statistics.clear();
-        var feed = media.getImmerseFeed(userId, null, null, 5);
+        var feed = media.getImmerseFeed(userId, unit, null, 5);
         assertEquals(oneClip, statistics.getPrepareStatementCount());
         assertEquals(3, oneClip);
         assertEquals(5, feed.content().size());
         assertEquals(first, feed.content().getFirst().id());
         assertEquals(List.of("first", "second"), feed.content().getFirst().subtitles().stream().map(MediaService.SubtitleDto::text).toList());
         assertTrue(feed.content().get(1).subtitles().isEmpty());
+        assertNull(feed.nextCursor());
+        var firstPage = media.getImmerseFeed(userId, unit, null, 2);
+        var secondPage = media.getImmerseFeed(userId, unit, firstPage.nextCursor(), 2);
+        assertEquals(feed.content().subList(2, 4), secondPage.content());
+        assertThrows(com.hangeoreum.api.shared.web.ApiException.class,
+                () -> media.getImmerseFeed(userId, UUID.randomUUID(), firstPage.nextCursor(), 2));
+        assertTrue(media.getImmerseFeed(userId, null, null, 5).content().isEmpty());
+        assertTrue(media.getImmerseFeed(userId, UUID.randomUUID(), null, 5).content().isEmpty());
     }
 
     @Test
@@ -161,6 +275,41 @@ class AuditInvariantsPerformanceIntegrationTest {
         assertEquals(first, decks.getFirst().id());
         assertEquals(1, decks.getFirst().wordCount());
         assertTrue(decks.stream().skip(1).allMatch(deck -> deck.wordCount() == 0));
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void immerseUsesActualAdminProgressAndProtectsFutureUnits() throws Exception {
+        User user = newUser();
+        jdbc.update("update users set role='USER' where role='ADMIN'");
+        user.changeRole(UserRole.ADMIN);
+        users.saveAndFlush(user);
+        jdbc.update("update courses set is_published=false");
+        String token = "Bearer " + auth.issueTokens(user).accessToken();
+        mvc.perform(get("/api/v1/immerse/feed").header("Authorization", token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.units").isEmpty())
+                .andExpect(jsonPath("$.selectedUnit").doesNotExist());
+        UUID course = UUID.randomUUID(), first = UUID.randomUUID(), second = UUID.randomUUID();
+        UUID firstLesson = UUID.randomUUID(), secondLesson = UUID.randomUUID();
+        jdbc.update("insert into courses(id,title,is_published) values (?,'Course',true)", course);
+        jdbc.update("insert into units(id,course_id,position,title,description,is_published) values (?,?,0,'First','Greeting',true),(?,?,1,'Second','Travel',true)",
+                first, course, second, course);
+        jdbc.update("insert into lessons(id,unit_id,position,title,is_published) values (?,?,0,'First',true),(?,?,0,'Second',true)",
+                firstLesson, first, secondLesson, second);
+        mvc.perform(get("/api/v1/immerse/feed").header("Authorization", token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.selectedUnit.id").value(first.toString()))
+                .andExpect(jsonPath("$.content").isEmpty()).andExpect(jsonPath("$.units.length()").value(1));
+        mvc.perform(get("/api/v1/immerse/feed").param("unitId",second.toString()).header("Authorization", token))
+                .andExpect(status().isForbidden());
+        jdbc.update("insert into lesson_progress(user_id,lesson_id,status) values (?,?,'COMPLETED')",user.getId(),firstLesson);
+        mvc.perform(get("/api/v1/immerse/feed").header("Authorization", token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.selectedUnit.id").value(second.toString()))
+                .andExpect(jsonPath("$.units.length()").value(2));
+        mvc.perform(get("/api/v1/immerse/feed").param("unitId",first.toString()).header("Authorization", token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.selectedUnit.id").value(first.toString()));
+        jdbc.update("insert into lesson_progress(user_id,lesson_id,status) values (?,?,'COMPLETED')",user.getId(),secondLesson);
+        mvc.perform(get("/api/v1/immerse/feed").header("Authorization", token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.selectedUnit.id").value(second.toString()));
     }
 
     private User newUser() {

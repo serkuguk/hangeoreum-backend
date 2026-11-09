@@ -82,6 +82,20 @@ public class GrantXpService {
         return new GrantResult(totalXp, goalReached, streak.getCurrent());
     }
 
+    /**
+     * Read-only pre-check at lesson start, so a free learner over the daily limit sees the paywall
+     * before doing the exercises instead of losing them at completion. reserveLesson stays the real gate.
+     */
+    @Transactional(readOnly = true)
+    public void requireLessonQuota(UUID userId, boolean unlimited) {
+        if (unlimited) return;
+        int used = dailyActivityRepository.findByUserIdAndActivityDate(userId, LocalDate.now())
+                .map(DailyActivity::getLessonReservations).orElse(0);
+        if (!AccessPolicy.withinFreeLessonLimit(used)) {
+            throw ApiException.forbidden("LIMIT_REACHED", "Daily free lesson limit reached");
+        }
+    }
+
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
     public void reserveLesson(UUID userId, boolean unlimited) {
         DailyActivity activity = lockToday(userId);

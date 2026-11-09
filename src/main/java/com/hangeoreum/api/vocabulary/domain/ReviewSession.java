@@ -1,6 +1,6 @@
 package com.hangeoreum.api.vocabulary.domain;
 
-import com.hangeoreum.api.shared.web.ApiException;
+import com.hangeoreum.api.shared.domain.DomainException;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -51,7 +51,7 @@ public class ReviewSession {
 
     public void registerAnswer(boolean isCorrect) {
         requireOpen();
-        if (total == Short.MAX_VALUE) throw ApiException.conflict("Session answer limit reached");
+        if (total == Short.MAX_VALUE) throw DomainException.conflict("Session answer limit reached");
         total++;
         if (isCorrect) {
             correct++;
@@ -75,7 +75,7 @@ public class ReviewSession {
 
     public void requireOpen() {
         if (isFinished()) {
-            throw ApiException.conflict("Review session is already finished");
+            throw DomainException.conflict("Review session is already finished");
         }
     }
 

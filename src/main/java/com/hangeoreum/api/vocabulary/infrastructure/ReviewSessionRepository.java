@@ -18,4 +18,7 @@ public interface ReviewSessionRepository extends JpaRepository<ReviewSession, UU
     @Query("select s from ReviewSession s where s.id = :id and s.userId = :userId")
     Optional<ReviewSession> findByIdAndUserIdForUpdate(@Param("id") UUID id, @Param("userId") UUID userId);
 
+    org.springframework.data.domain.Page<ReviewSession> findByUserId(UUID userId, org.springframework.data.domain.Pageable pageable);
+    long countByUserId(UUID userId);
+
 }
