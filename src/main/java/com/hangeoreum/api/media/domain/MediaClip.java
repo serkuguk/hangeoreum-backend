@@ -76,7 +76,7 @@ public class MediaClip {
         return clip;
     }
 
-    /** Invariant: a clip can only be published with a video and at least one subtitle line. */
+    /** Invariant: a clip needs video/audio to be published; STORY clips also need at least one subtitle line. */
     public void publish(long subtitleCount) {
         if (kind == ClipKind.IMMERSE && (unitId == null || title == null || title.isBlank()
                 || videoUrl == null || videoUrl.isBlank())) {
@@ -85,7 +85,7 @@ public class MediaClip {
         if (videoUrl == null && audioUrl == null) {
             throw DomainException.conflict("Clip has no video/audio");
         }
-        if (kind != ClipKind.WORD && subtitleCount == 0) {
+        if (kind == ClipKind.STORY && subtitleCount == 0) {
             throw DomainException.conflict("Clip has no subtitles");
         }
         this.isPublished = true;

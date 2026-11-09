@@ -5,6 +5,7 @@ import com.hangeoreum.api.media.domain.*;
 import com.hangeoreum.api.media.infrastructure.MediaClipRepository;
 import com.hangeoreum.api.media.infrastructure.NativeSpeakerRepository;
 import com.hangeoreum.api.media.infrastructure.SubtitleRepository;
+import com.hangeoreum.api.shared.domain.DomainException;
 import com.hangeoreum.api.shared.storage.MediaStorage;
 import com.hangeoreum.api.shared.web.ApiException;
 import jakarta.validation.Valid;
@@ -101,6 +102,20 @@ public class MediaAdministrationService {
                 clip.setVideoName(name == null ? null : name.substring(0, Math.min(name.length(), 255)));
             }
         }
+        return clip;
+    }
+
+    public record VideoLinkRequest(@NotBlank String url) {
+    }
+
+    // YouTube только для IMMERSE: story-плеер и режим «Слушать» играют videoUrl через <audio>
+    public MediaClip setVideoLink(UUID id, @Valid VideoLinkRequest r) {
+        MediaClip clip = mediaService.lockClip(id);
+        if (clip.getKind() != ClipKind.IMMERSE) throw DomainException.validation("YouTube links are only allowed for IMMERSE clips");
+        YoutubeLink link = YoutubeLink.parse(r.url());
+        clip.setVideoUrl(link.canonicalUrl());
+        clip.setVideoName("YouTube: " + link.videoId());
+        if (clip.isPublished()) clip.publish(subtitleRepository.countByClipId(id));
         return clip;
     }
 

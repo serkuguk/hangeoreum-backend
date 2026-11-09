@@ -78,6 +78,11 @@ public class AdminMediaController {
         return service.uploadClipMedia(id, file, type);
     }
 
+    @PutMapping("/clips/{id}/video-link")
+    public MediaClip setClipVideoLink(@PathVariable UUID id, @RequestBody @Valid VideoLinkRequest r) {
+        return service.setVideoLink(id, r);
+    }
+
     @PatchMapping("/clips/{id}/publish")
     public MediaClip publishClip(@PathVariable UUID id, @RequestBody PublishRequest r) {
         return service.publishClip(id, r);
