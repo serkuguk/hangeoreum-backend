@@ -66,6 +66,11 @@ public class GlobalExceptionHandler {
                 }
             }
         }
+        // Spring's own 404 (missing /media file, unknown path), 405, 413, 415: keep their status, not 500
+        if (e instanceof org.springframework.web.ErrorResponse standard && standard.getStatusCode().is4xxClientError()) {
+            HttpStatus status = HttpStatus.valueOf(standard.getStatusCode().value());
+            return ResponseEntity.status(status).body(new ErrorResponse(status.name(), status.getReasonPhrase(), Map.of()));
+        }
         log.error("Unhandled exception", e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ErrorResponse("INTERNAL", "Internal server error", Map.of()));

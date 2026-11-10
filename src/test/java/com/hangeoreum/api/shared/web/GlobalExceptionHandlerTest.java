@@ -58,6 +58,16 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void springClientErrorsKeepTheirStatusInsteadOfInternalError() throws Exception {
+        MockMvc mvc = standaloneSetup(new ContractController()).setControllerAdvice(new GlobalExceptionHandler()).build();
+        mvc.perform(get("/contract/missing")).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/contract/validation"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
+    }
+
+    @Test
     void domainErrorsRetainTheValidationAndConflictHttpContracts() throws Exception {
         MockMvc mvc = standaloneSetup(new ContractController()).setControllerAdvice(new GlobalExceptionHandler()).build();
         mvc.perform(get("/contract/validation")).andExpect(status().isBadRequest())
@@ -98,6 +108,12 @@ class GlobalExceptionHandlerTest {
             var failure = new ClientAbortException(new SocketException("Connection reset by peer"));
             if (wrapped) throw new IOException("Video response failed", failure);
             throw failure;
+        }
+
+        @GetMapping("/contract/missing")
+        void missing() throws Exception {
+            throw new org.springframework.web.servlet.resource.NoResourceFoundException(
+                    org.springframework.http.HttpMethod.GET, "/media/missing.png", "media/missing.png");
         }
 
         @GetMapping("/contract/io-failure")

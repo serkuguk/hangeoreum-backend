@@ -24,6 +24,10 @@ public class MediaStorage {
 
     private static final int MAX_AVATAR_BYTES = 5 * 1024 * 1024;
     private static final int MAX_AVATAR_DIMENSION = 2048;
+    // /media is public and same-origin with the app: html/svg/js would run as stored XSS, so only passive media
+    private static final java.util.Set<String> MEDIA_EXTENSIONS = java.util.Set.of(
+            ".mp4", ".webm", ".mov", ".m4v", ".mp3", ".wav", ".ogg", ".m4a", ".aac",
+            ".png", ".jpg", ".jpeg", ".webp", ".gif");
 
     @Value("${app.storage.dir}")
     private String storageDir;
@@ -102,7 +106,10 @@ public class MediaStorage {
             throw ApiException.badRequest("File is empty");
         }
         String original = file.getOriginalFilename() == null ? "file" : file.getOriginalFilename();
-        String ext = original.contains(".") ? original.substring(original.lastIndexOf('.')) : "";
+        String ext = original.contains(".") ? original.substring(original.lastIndexOf('.')).toLowerCase(Locale.ROOT) : "";
+        if (!MEDIA_EXTENSIONS.contains(ext)) {
+            throw ApiException.badRequest("Unsupported file type; allowed: " + String.join(" ", new java.util.TreeSet<>(MEDIA_EXTENSIONS)));
+        }
         String name = UUID.randomUUID() + ext;
         try {
             Path dir = Path.of(storageDir, subdir);
