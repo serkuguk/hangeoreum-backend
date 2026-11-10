@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -121,6 +122,16 @@ public class VocabularyAdministrationService {
 
     public void deleteTopic(UUID id) {
         topicRepository.deleteById(id);
+    }
+
+    // ponytail: no SVG — served from /media it can run scripts when opened directly.
+    private static final Set<String> TOPIC_ICON_TYPES = Set.of("image/png", "image/jpeg", "image/webp");
+
+    public String uploadTopicIcon(MultipartFile file) {
+        if (file == null || !TOPIC_ICON_TYPES.contains(file.getContentType())) {
+            throw ApiException.badRequest("Icon must be PNG, JPEG or WEBP");
+        }
+        return mediaStorage.store(file, "topics");
     }
 
     @Transactional(readOnly = true)

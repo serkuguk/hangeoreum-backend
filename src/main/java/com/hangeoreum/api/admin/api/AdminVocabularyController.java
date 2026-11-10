@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Tag(name = "Admin")
@@ -67,6 +68,11 @@ public class AdminVocabularyController {
     @ResponseStatus(HttpStatus.CREATED)
     public TopicDto createTopic(@RequestBody @Valid TopicRequest r) {
         return service.createTopic(r);
+    }
+
+    @PostMapping("/topics/icon")
+    public Map<String, String> uploadTopicIcon(@RequestParam("file") MultipartFile file) {
+        return Map.of("url", service.uploadTopicIcon(file));
     }
 
     @PutMapping("/topics/{id}")
