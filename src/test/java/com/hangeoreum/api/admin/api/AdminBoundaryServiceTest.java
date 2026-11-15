@@ -89,5 +89,21 @@ class AdminBoundaryServiceTest {
         verify(media).lockClip(id);
         verify(subtitles).countByClipId(id);
     }
+
+    @Test
+    void youtubeLinkOnlyForImmerseClips() {
+        MediaService media = mock(MediaService.class);
+        var service = new MediaAdministrationService(mock(NativeSpeakerRepository.class), mock(MediaClipRepository.class),
+                mock(SubtitleRepository.class), media, mock(MediaStorage.class), mock(com.hangeoreum.api.learning.application.LearningQueryService.class));
+        UUID id = UUID.randomUUID();
+        var request = new MediaAdministrationService.VideoLinkRequest("https://youtu.be/dQw4w9WgXcQ");
+        when(media.lockClip(id)).thenReturn(MediaClip.create(ClipKind.STORY, null, null));
+        assertThrows(DomainException.class, () -> service.setVideoLink(id, request));
+        MediaClip immerse = MediaClip.create(ClipKind.IMMERSE, null, null);
+        when(media.lockClip(id)).thenReturn(immerse);
+        service.setVideoLink(id, request);
+        assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ", immerse.getVideoUrl());
+        assertEquals("YouTube: dQw4w9WgXcQ", immerse.getVideoName());
+    }
 }
 

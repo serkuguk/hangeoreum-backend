@@ -4,6 +4,8 @@ import com.hangeoreum.api.media.domain.ClipKind;
 import com.hangeoreum.api.media.domain.MediaClip;
 import com.hangeoreum.api.media.domain.Subtitle;
 import com.hangeoreum.api.media.domain.UserClipView;
+import com.hangeoreum.api.media.domain.YoutubeLink;
+import com.hangeoreum.api.shared.domain.DomainException;
 import com.hangeoreum.api.media.infrastructure.MediaClipRepository;
 import com.hangeoreum.api.media.infrastructure.SubtitleRepository;
 import com.hangeoreum.api.media.infrastructure.UserClipViewRepository;
@@ -48,6 +50,9 @@ public class MediaService {
         MediaClip clip = lockClip(id);
         if (kind != ClipKind.STORY && learningQueryService.usesStoryClip(id)) {
             throw ApiException.conflict("Clip is used by a story");
+        }
+        if (kind != ClipKind.IMMERSE && clip.getVideoUrl() != null && YoutubeLink.isYoutube(clip.getVideoUrl())) {
+            throw DomainException.validation("YouTube video is only allowed for IMMERSE clips");
         }
         clip.setKind(kind);
         clip.setSpeakerId(speakerId);

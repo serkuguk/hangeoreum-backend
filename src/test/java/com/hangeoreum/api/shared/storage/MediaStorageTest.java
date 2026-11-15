@@ -76,4 +76,14 @@ class MediaStorageTest {
         assertFalse(Files.exists(avatar));
         assertTrue(Files.exists(other));
     }
+
+    @Test
+    void adminUploadsAcceptOnlyPassiveMediaExtensions() {
+        assertTrue(storage.store(new MockMultipartFile("file", "Clip.MP4", "video/mp4", new byte[]{1}), "clips")
+                .matches("/media/clips/[0-9a-f-]+[.]mp4"));
+        for (String name : new String[]{"page.html", "icon.svg", "run.js", "noext"}) {
+            assertThrows(ApiException.class,
+                    () -> storage.store(new MockMultipartFile("file", name, "video/mp4", new byte[]{1}), "clips"));
+        }
+    }
 }

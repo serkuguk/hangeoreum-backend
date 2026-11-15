@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 class MediaClipTest {
-    @Test void immersionPublicationRequiresUnitTitleVideoAndSubtitles() {
+    @Test void immersionPublicationRequiresUnitTitleVideoButNotSubtitles() {
         var clip = MediaClip.create(ClipKind.IMMERSE, null, null);
         clip.setAudioUrl("audio");
         assertThrows(DomainException.class, () -> clip.publish(1));
@@ -12,11 +12,18 @@ class MediaClipTest {
         clip.setUnitId(UUID.randomUUID());
         assertThrows(DomainException.class, () -> clip.publish(1));
         clip.setTitle("Greeting");
-        assertThrows(DomainException.class, () -> clip.publish(0));
-        clip.publish(1);
+        clip.publish(0);
         assertTrue(clip.isPublished());
         clip.setTitle(" ");
         assertThrows(DomainException.class, () -> clip.publish(1));
         assertThrows(DomainException.class, () -> clip.setPosition(-1));
+    }
+
+    @Test void storyPublicationRequiresSubtitles() {
+        var clip = MediaClip.create(ClipKind.STORY, null, null);
+        clip.setVideoUrl("video");
+        assertThrows(DomainException.class, () -> clip.publish(0));
+        clip.publish(1);
+        assertTrue(clip.isPublished());
     }
 }
