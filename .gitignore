@@ -43,3 +43,4 @@ docs/
 graphify-out/
 scripts/
 uploads/
+.playwright-mcp/
