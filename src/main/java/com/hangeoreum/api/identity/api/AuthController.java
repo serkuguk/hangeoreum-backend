@@ -34,7 +34,7 @@ public class AuthController {
                                   @NotBlank @Size(min = 8, max = 100) String password) {
     }
 
-    public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {
+    public record LoginRequest(@NotBlank @Email String email, @NotBlank @Size(max = 100) String password) {
     }
 
     public record PasswordResetRequest(@NotBlank @Email String email) {
@@ -47,12 +47,27 @@ public class AuthController {
     public record AuthResponse(String accessToken, UserDto user) {
     }
 
+    public record EmailVerificationConfirmRequest(@NotBlank @Size(max = 2000) String token) {
+    }
+
     @PostMapping("/register")
-    public ResponseEntity<AuthResponse> register(@RequestBody @jakarta.validation.Valid RegisterRequest request) {
-        AuthService.TokenPair pair = authService.register(request.name(), request.email(), request.password());
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .header(HttpHeaders.SET_COOKIE, refreshCookie(pair.refreshToken(), authService.refreshTtl()).toString())
-                .body(new AuthResponse(pair.accessToken(), UserDto.from(pair.user())));
+    @io.swagger.v3.oas.annotations.Operation(description = "Always 202, whether or not the email is already registered. No session is issued: the account works after the mailed link is confirmed.")
+    public ResponseEntity<Void> register(@RequestBody @jakarta.validation.Valid RegisterRequest request) {
+        authService.register(request.name(), request.email(), request.password());
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/email-verification/confirm")
+    public ResponseEntity<Void> confirmEmail(@RequestBody @jakarta.validation.Valid EmailVerificationConfirmRequest request) {
+        authService.confirmEmail(request.token());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/email-verification/resend")
+    public ResponseEntity<Void> resendEmailVerification(
+            @RequestBody @jakarta.validation.Valid PasswordResetRequest request) {
+        authService.resendEmailVerification(request.email());
+        return ResponseEntity.accepted().build();
     }
 
     @PostMapping("/login")
@@ -95,9 +110,13 @@ public class AuthController {
     }
 
     private ResponseCookie refreshCookie(String value, Duration maxAge) {
+        return refreshCookie(value, maxAge, refreshCookieSecure);
+    }
+
+    static ResponseCookie refreshCookie(String value, Duration maxAge, boolean secure) {
         return ResponseCookie.from(REFRESH_COOKIE, value)
                 .httpOnly(true)
-                .secure(refreshCookieSecure)
+                .secure(secure)
                 .path("/api/v1/auth")
                 .sameSite("Lax")
                 .maxAge(maxAge)

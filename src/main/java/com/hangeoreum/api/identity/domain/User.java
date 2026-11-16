@@ -38,6 +38,8 @@ public class User {
 
     private boolean isActive = true;
 
+    private Instant emailVerifiedAt;
+
     private Instant createdAt = Instant.now();
 
     private Instant updatedAt = Instant.now();
@@ -53,6 +55,25 @@ public class User {
         user.email = email.toLowerCase(java.util.Locale.ROOT);
         user.passwordHash = passwordHash;
         return user;
+    }
+
+    /** A second registration for an address nobody has confirmed yet replaces the first one. */
+    public void reRegister(String name, String passwordHash) {
+        if (isEmailVerified()) {
+            throw new IllegalStateException("Confirmed account cannot be re-registered");
+        }
+        this.name = name;
+        this.passwordHash = passwordHash;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerifiedAt != null;
+    }
+
+    public void markEmailVerified() {
+        if (emailVerifiedAt == null) {
+            emailVerifiedAt = Instant.now();
+        }
     }
 
     public void rename(String name) {

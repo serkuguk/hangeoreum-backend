@@ -302,9 +302,12 @@ class DatabaseHardeningIntegrationTest {
         List<Integer> statuses = concurrent(
                 () -> request(post("/api/v1/auth/register"), null, registration).andReturn().getResponse().getStatus(),
                 () -> request(post("/api/v1/auth/register"), null, registration.toLowerCase(java.util.Locale.ROOT)).andReturn().getResponse().getStatus());
-        assertEquals(List.of(201, 409), statuses.stream().sorted().toList());
-        request(post("/api/v1/auth/register"), null, registration).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("EMAIL_TAKEN"));
+        // the loser of the race either sees the winner's row (202) or trips the unique index (409)
+        assertEquals(202, statuses.stream().sorted().toList().getFirst());
+        assertTrue(List.of(202, 409).contains(statuses.stream().sorted().toList().getLast()));
+        request(post("/api/v1/auth/register"), null, registration).andExpect(status().isAccepted());
+        assertEquals(1, count("select count(*) from users where lower(email)=lower('" + email + "')"));
+        jdbc.update("update users set email_verified_at = now() where lower(email)=lower(?)", email);
         jdbc.update("update users set email=? where lower(email)=lower(?)", email, email);
         request(post("/api/v1/auth/login"), null, "{\"email\":\"" + email.toUpperCase(java.util.Locale.ROOT)
                 + "\",\"password\":\"password123\"}").andExpect(status().isOk());

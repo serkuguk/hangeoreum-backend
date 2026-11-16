@@ -66,6 +66,10 @@ public class UserSettings {
         this.showRomanization = showRomanization;
         this.playbackSpeed = playbackSpeed;
         if (theme != null) {
+            // free-form client JSON stored as is: cap it so a user cannot park megabytes in the row
+            if (theme.length() > 4096) {
+                throw com.hangeoreum.api.shared.domain.DomainException.validation("Theme settings are too large");
+            }
             this.theme = theme;
         }
     }

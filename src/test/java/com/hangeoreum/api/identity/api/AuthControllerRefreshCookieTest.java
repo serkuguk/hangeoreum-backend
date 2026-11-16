@@ -23,7 +23,6 @@ class AuthControllerRefreshCookieTest {
                 AuthService auth = mock(AuthService.class);
                 var pair = new AuthService.TokenPair("access", "refresh",
                         User.register("User", "user@example.com", "hash"));
-                when(auth.register("User", "user@example.com", "password")).thenReturn(pair);
                 when(auth.login("user@example.com", "password")).thenReturn(pair);
                 when(auth.refresh("old-refresh")).thenReturn(pair);
                 when(auth.refreshTtl()).thenReturn(Duration.ofDays(30));
@@ -32,7 +31,6 @@ class AuthControllerRefreshCookieTest {
                 context.refresh();
                 AuthController controller = context.getBean(AuthController.class);
                 var responses = java.util.List.of(
-                        controller.register(new AuthController.RegisterRequest("User", "user@example.com", "password")),
                         controller.login(new AuthController.LoginRequest("user@example.com", "password")),
                         controller.refresh("old-refresh"), controller.logout("old-refresh"));
                 for (var response : responses) {

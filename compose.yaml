@@ -28,6 +28,7 @@ services:
     restart: unless-stopped
     environment:
       SERVER_PORT: 8082
+      SPRING_PROFILES_ACTIVE: dev
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://host.docker.internal:5432/hangeoreum}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-hangeoreum}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-hangeoreum}

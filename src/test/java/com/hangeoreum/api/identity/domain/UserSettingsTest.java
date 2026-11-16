@@ -7,6 +7,16 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class UserSettingsTest {
     @Test
+    void oversizedThemeIsRejected() {
+        UserSettings settings = UserSettings.defaults(UUID.randomUUID());
+        settings.update((short) 20, false, null, true, true, true, 1.0, "{\"mode\":\"dark\"}");
+        assertEquals("{\"mode\":\"dark\"}", settings.getTheme());
+        assertThrows(DomainException.class, () -> settings.update((short) 20, false, null, true, true, true, 1.0,
+                "\"" + "x".repeat(4096) + "\""));
+        assertEquals("{\"mode\":\"dark\"}", settings.getTheme());
+    }
+
+    @Test
     void bothWritePathsEnforceNumericDailyGoals() {
         UserSettings settings = UserSettings.defaults(UUID.randomUUID());
         assertEquals(20, settings.getDailyGoalXp());

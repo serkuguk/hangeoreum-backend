@@ -40,7 +40,7 @@ public class ReviewController {
     }
 
     @PostMapping("/sessions/{id}/answers")
-    public void submitAnswers(@PathVariable UUID id, @RequestBody @Valid List<@NotNull @Valid AnswerCommand> answers) {
+    public void submitAnswers(@PathVariable UUID id, @RequestBody @Valid @jakarta.validation.constraints.Size(max = 100) List<@NotNull @Valid AnswerCommand> answers) {
         reviewService.submitAnswers(CurrentUser.id(), id, answers);
     }
 

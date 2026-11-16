@@ -49,6 +49,9 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final ApplicationEventPublisher events;
+    private final com.hangeoreum.api.shared.security.AttemptLimiter attempts;
+
+    private volatile String dummyHash;
 
     @Value("${app.jwt.refresh-days}")
     private long refreshDays;
@@ -56,23 +59,102 @@ public class AuthService {
     public record TokenPair(String accessToken, String refreshToken, User user) {
     }
 
+    /**
+     * Never says whether the address is already registered and never signs anyone in:
+     * the account only becomes usable through the link mailed to the address.
+     */
     @Transactional
-    public TokenPair register(String name, String email, String password) {
-        if (userRepository.existsByEmail(email)) {
-            throw new ApiException(HttpStatus.CONFLICT, "EMAIL_TAKEN", "Email is already registered");
+    public void register(String name, String email, String password) {
+        attempts.record(verificationMailKey(email));
+        // hashed before the lookup so all three branches cost the same
+        String hash = passwordEncoder.encode(password);
+        User user = userRepository.findByEmail(email).orElse(null);
+        if (user == null) {
+            user = userRepository.saveAndFlush(User.register(name, email, hash));
+            settingsRepository.save(UserSettings.defaults(user.getId()));
+            events.publishEvent(new UserRegisteredEvent(user.getId(), user.getName()));
+        } else if (user.isActive() && !user.isEmailVerified()) {
+            // whoever registered first never proved the address is theirs; the latest registrant replaces them
+            user.reRegister(name, hash);
+        } else {
+            return;
         }
-        User user = userRepository.saveAndFlush(User.register(name, email, passwordEncoder.encode(password)));
-        settingsRepository.save(UserSettings.defaults(user.getId()));
-        events.publishEvent(new UserRegisteredEvent(user.getId(), user.getName()));
-        return issueTokens(user);
+        sendEmailVerificationAfterCommit(user);
+    }
+
+    @Transactional
+    public void resendEmailVerification(String email) {
+        attempts.record(verificationMailKey(email));
+        userRepository.findByEmail(email)
+                .filter(user -> user.isActive() && user.hasPassword() && !user.isEmailVerified())
+                .ifPresent(this::sendEmailVerificationAfterCommit);
+    }
+
+    @Transactional
+    public void confirmEmail(String token) {
+        var claims = jwtService.readEmailVerificationToken(token).orElseThrow(AuthService::invalidVerificationToken);
+        User user = userRepository.findById(claims.userId())
+                .filter(found -> found.isActive() && found.hasPassword()
+                        && passwordFingerprint(found).equals(claims.fingerprint()))
+                .orElseThrow(AuthService::invalidVerificationToken);
+        user.markEmailVerified();
+    }
+
+    private void sendEmailVerificationAfterCommit(User user) {
+        String email = user.getEmail();
+        String token = jwtService.createEmailVerificationToken(user.getId(), passwordFingerprint(user));
+        // off the request thread: a synchronous SMTP call would make "mail sent" slower than "already registered"
+        afterCommit(() -> java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                passwordResetMailSender.sendEmailVerification(email, token);
+            } catch (RuntimeException exception) {
+                log.warn("Email verification delivery failed");
+            }
+        }));
+    }
+
+    private static String verificationMailKey(String email) {
+        return "verify-mail:" + email.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static String passwordFingerprint(User user) {
+        return hash(user.getPasswordHash()).substring(0, 16);
+    }
+
+    private static ApiException invalidVerificationToken() {
+        return new ApiException(HttpStatus.BAD_REQUEST, "INVALID_VERIFICATION_TOKEN", "Invalid or expired verification link");
     }
 
     @Transactional
     public TokenPair login(String email, String password) {
-        User user = userRepository.findByEmail(email)
-                .filter(u -> u.isActive() && u.hasPassword() && passwordEncoder.matches(password, u.getPasswordHash()))
-                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS",
-                        "Invalid email or password"));
+        String attemptKey = "login:" + email.toLowerCase(java.util.Locale.ROOT);
+        attempts.requireAllowed(attemptKey);
+        User user = userRepository.findByEmail(email).filter(u -> u.isActive() && u.hasPassword()).orElse(null);
+        // bcrypt runs even for an unknown email, so the response time does not reveal which emails are registered
+        boolean matches = passwordEncoder.matches(password, user == null ? dummyHash() : user.getPasswordHash());
+        if (user == null || !matches) {
+            attempts.failed(attemptKey);
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Invalid email or password");
+        }
+        attempts.succeeded(attemptKey);
+        if (!user.isEmailVerified()) {
+            // only reachable with the right password, so it does not reveal anything to a stranger
+            throw ApiException.forbidden("EMAIL_NOT_VERIFIED", "Confirm your email before signing in");
+        }
+        return issueTokens(user);
+    }
+
+    private String dummyHash() {
+        if (dummyHash == null) {
+            dummyHash = passwordEncoder.encode("timing-equalizer");
+        }
+        return dummyHash;
+    }
+
+    /** After a password change: every existing session dies, the caller gets a fresh one. */
+    @Transactional
+    public TokenPair reissueAfterPasswordChange(User user) {
+        refreshTokenRepository.revokeAllForUser(user.getId(), Instant.now());
         return issueTokens(user);
     }
 
@@ -102,14 +184,18 @@ public class AuthService {
                 log.warn("Password reset email delivery failed");
             }
         };
+        afterCommit(send);
+    }
+
+    private static void afterCommit(Runnable action) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            send.run();
+            action.run();
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                send.run();
+                action.run();
             }
         });
     }
@@ -122,11 +208,14 @@ public class AuthService {
                 .orElseThrow(AuthService::invalidResetToken);
         User user = userRepository.findById(token.getUserId()).orElseThrow(AuthService::invalidResetToken);
         user.changePasswordHash(passwordEncoder.encode(newPassword));
+        // the reset link came from the same mailbox, so it proves ownership just as well
+        user.markEmailVerified();
         token.use(now);
-        refreshTokenRepository.revokeAllForUser(user.getId());
+        refreshTokenRepository.revokeAllForUser(user.getId(), now);
     }
 
-    @Transactional
+    // noRollbackFor: the family revocation done on token reuse must survive the 401 that reports it
+    @Transactional(noRollbackFor = ApiException.class)
     public TokenPair refresh(String rawRefreshToken) {
         RefreshToken stored = findUsable(rawRefreshToken);
         stored.revoke();
@@ -148,9 +237,17 @@ public class AuthService {
         if (raw == null) {
             throw ApiException.unauthorized("Refresh token missing");
         }
-        return refreshTokenRepository.findByTokenHashForUpdate(hash(raw))
-                .filter(RefreshToken::isUsable)
+        RefreshToken stored = refreshTokenRepository.findByTokenHashForUpdate(hash(raw))
                 .orElseThrow(() -> ApiException.unauthorized("Invalid refresh token"));
+        if (stored.isReusedAt(Instant.now())) {
+            // a rotated token came back: it was copied, and we cannot tell which side is the thief
+            log.warn("Refresh token reuse detected for user {}; revoking all sessions", stored.getUserId());
+            refreshTokenRepository.revokeAllForUser(stored.getUserId(), Instant.now());
+        }
+        if (!stored.isUsable()) {
+            throw ApiException.unauthorized("Invalid refresh token");
+        }
+        return stored;
     }
 
     public TokenPair issueTokens(User user) {

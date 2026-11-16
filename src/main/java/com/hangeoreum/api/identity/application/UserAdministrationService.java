@@ -67,7 +67,7 @@ public class UserAdministrationService {
         if (r.isActive() != null) {
             user.setActive(r.isActive());
             if (!r.isActive()) {
-                refreshTokenRepository.revokeAllForUser(id);
+                refreshTokenRepository.revokeAllForUser(id, java.time.Instant.now());
             }
         }
         return UserDto.from(user);
