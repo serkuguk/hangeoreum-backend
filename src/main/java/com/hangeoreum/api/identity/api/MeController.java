@@ -28,6 +28,10 @@ import java.util.Map;
 public class MeController {
 
     private final MeService meService;
+    private final com.hangeoreum.api.identity.application.AuthService authService;
+
+    @org.springframework.beans.factory.annotation.Value("#{environment.acceptsProfiles('prod')}")
+    private boolean refreshCookieSecure;
 
     public record UpdateMeRequest(@Size(max = 100) String name, StartLevel startLevel) {
     }
@@ -87,8 +91,12 @@ public class MeController {
 
     @PostMapping("/password")
     public ResponseEntity<Void> changePassword(@RequestBody @Valid ChangePasswordRequest request) {
-        meService.changePassword(CurrentUser.id(), request.current(), request.next());
-        return ResponseEntity.noContent().build();
+        // other sessions are revoked; this one continues on the fresh refresh cookie
+        var pair = meService.changePassword(CurrentUser.id(), request.current(), request.next());
+        return ResponseEntity.noContent()
+                .header(org.springframework.http.HttpHeaders.SET_COOKIE, AuthController.refreshCookie(
+                        pair.refreshToken(), authService.refreshTtl(), refreshCookieSecure).toString())
+                .build();
     }
 
     @PostMapping("/avatar")

@@ -95,6 +95,8 @@ public class SecurityConfig {
         converter.setJwtGrantedAuthoritiesConverter(jwt -> {
             com.hangeoreum.api.identity.domain.UserRole role;
             try {
+                // signed with the same key, but mailed links must never work as a login
+                if (jwt.hasClaim(JwtService.PURPOSE_CLAIM)) throw new IllegalArgumentException("Not an access token");
                 role = identity.activeRole(UUID.fromString(jwt.getSubject())).orElseThrow(() -> new IllegalArgumentException("Account unavailable"));
             } catch (IllegalArgumentException ex) {
                 throw new OAuth2AuthenticationException(new OAuth2Error("invalid_token", "Account unavailable", null));
@@ -104,7 +106,14 @@ public class SecurityConfig {
         return converter;
     }
 
+    @Value("#{environment.acceptsProfiles('dev')}")
+    private boolean devProfile;
+
     private SecretKey secretKey() {
+        // both values are public (git / env example): anyone could sign an admin token with them
+        if (jwtSecret.startsWith("change-me") || (!devProfile && jwtSecret.startsWith("hangeoreum-dev-secret"))) {
+            throw new IllegalStateException("JWT_SECRET is a known placeholder; set a random secret of 32+ characters");
+        }
         return new SecretKeySpec(jwtSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
     }
 

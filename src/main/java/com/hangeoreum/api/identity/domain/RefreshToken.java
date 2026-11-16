@@ -29,6 +29,8 @@ public class RefreshToken {
 
     private boolean revoked = false;
 
+    private Instant revokedAt;
+
     private Instant createdAt = Instant.now();
 
     public static RefreshToken issue(UUID userId, String tokenHash, Instant expiresAt) {
@@ -44,6 +46,19 @@ public class RefreshToken {
     }
 
     public void revoke() {
-        this.revoked = true;
+        if (!revoked) {
+            this.revoked = true;
+            this.revokedAt = Instant.now();
+        }
     }
+
+    /**
+     * A revoked token presented again long after its revocation is a stolen copy.
+     * The grace period keeps two tabs refreshing at the same moment from looking like theft.
+     */
+    public boolean isReusedAt(Instant now) {
+        return revoked && revokedAt != null && revokedAt.isBefore(now.minusSeconds(REUSE_GRACE_SECONDS));
+    }
+
+    public static final long REUSE_GRACE_SECONDS = 60;
 }

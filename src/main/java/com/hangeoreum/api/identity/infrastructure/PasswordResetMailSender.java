@@ -33,4 +33,21 @@ public class PasswordResetMailSender {
                 + "\n\nСсылка действует 30 минут.");
         mailSender.send(message);
     }
+
+    // ponytail: second auth mail lives here to reuse the sender wiring (and its test mocks);
+    // rename the class to AuthMailSender when a third mail appears
+    public void sendEmailVerification(String email, String token) {
+        String link = UriComponentsBuilder.fromUriString(frontUrl)
+                .path("/auth/verify-email")
+                .fragment("token=" + token)
+                .build()
+                .toUriString();
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom(from);
+        message.setTo(email);
+        message.setSubject("Подтверждение email 한걸음");
+        message.setText("Чтобы завершить регистрацию, перейдите по ссылке:\n\n" + link
+                + "\n\nСсылка действует 24 часа. Если вы не регистрировались, просто проигнорируйте это письмо.");
+        mailSender.send(message);
+    }
 }

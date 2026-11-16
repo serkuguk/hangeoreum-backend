@@ -45,7 +45,8 @@ class AuthServicePasswordResetTest {
     private final JwtService jwtService = mock(JwtService.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final AuthService authService = new AuthService(userRepository, settingsRepository, refreshTokenRepository,
-            resetTokenRepository, mailSender, passwordEncoder, jwtService, events);
+            resetTokenRepository, mailSender, passwordEncoder, jwtService, events,
+            new com.hangeoreum.api.shared.security.AttemptLimiter());
 
     @Test
     void requestIsNeutralForUnknownEmail() {
@@ -117,7 +118,7 @@ class AuthServicePasswordResetTest {
         authService.confirmPasswordReset("raw-token", "new-password");
 
         verify(user).changePasswordHash("bcrypt-hash");
-        verify(refreshTokenRepository).revokeAllForUser(userId);
+        verify(refreshTokenRepository).revokeAllForUser(org.mockito.ArgumentMatchers.eq(userId), any());
         assertTrue(token.getUsedAt() != null);
         assertThrows(ApiException.class, () -> authService.confirmPasswordReset("raw-token", "another-password"));
     }

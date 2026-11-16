@@ -33,6 +33,8 @@ public class MeService {
     private final OauthLinkRepository oauthLinkRepository;
     private final PasswordEncoder passwordEncoder;
     private final MediaStorage mediaStorage;
+    private final AuthService authService;
+    private final com.hangeoreum.api.shared.security.AttemptLimiter attempts;
 
     @Transactional(readOnly = true)
     public User get(UUID userId) {
@@ -74,12 +76,18 @@ public class MeService {
     }
 
     @Transactional
-    public void changePassword(UUID userId, String current, String next) {
+    public AuthService.TokenPair changePassword(UUID userId, String current, String next) {
+        // a stolen access token must not be enough to guess the current password
+        String attemptKey = "password:" + userId;
+        attempts.requireAllowed(attemptKey);
         User user = get(userId);
         if (!user.hasPassword() || !passwordEncoder.matches(current, user.getPasswordHash())) {
+            attempts.failed(attemptKey);
             throw ApiException.badRequest("Current password is incorrect");
         }
+        attempts.succeeded(attemptKey);
         user.changePasswordHash(passwordEncoder.encode(next));
+        return authService.reissueAfterPasswordChange(user);
     }
 
     @Transactional

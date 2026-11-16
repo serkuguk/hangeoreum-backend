@@ -2,6 +2,7 @@
   <configuration default="false" name="Hangeoreum API" type="Application" factoryName="Application">
     <option name="MAIN_CLASS_NAME" value="com.hangeoreum.api.HangeoreumApiApplication" />
     <module name="hangeoreum-api" />
+    <option name="ACTIVE_PROFILES" value="dev" />
     <method v="2" />
   </configuration>
 </component>

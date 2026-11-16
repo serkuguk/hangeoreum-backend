@@ -43,7 +43,7 @@ public class NotificationController {
     }
 
     @PostMapping("/read")
-    public void markRead(@RequestBody List<UUID> ids) {
+    public void markRead(@RequestBody @jakarta.validation.constraints.Size(max = 100) List<UUID> ids) {
         notificationService.markRead(CurrentUser.id(), ids);
     }
 

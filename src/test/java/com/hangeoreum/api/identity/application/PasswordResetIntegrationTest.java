@@ -85,6 +85,7 @@ class PasswordResetIntegrationTest {
         User user = userRepository.saveAndFlush(
                 User.register("Reset User", "reset@example.com", passwordEncoder.encode("old-password")));
         UUID userId = user.getId();
+        jdbc.update("update users set email_verified_at = now() where id = ?", userId);
         doAnswer(invocation -> {
             String rawToken = invocation.getArgument(1);
             assertEquals(1, jdbc.queryForObject(
