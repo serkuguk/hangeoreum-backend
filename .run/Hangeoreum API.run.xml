@@ -3,6 +3,9 @@
     <option name="MAIN_CLASS_NAME" value="com.hangeoreum.api.HangeoreumApiApplication" />
     <module name="hangeoreum-api" />
     <option name="ACTIVE_PROFILES" value="dev" />
+    <envs>
+      <env name="SPRING_PROFILES_ACTIVE" value="dev" />
+    </envs>
     <method v="2" />
   </configuration>
 </component>
